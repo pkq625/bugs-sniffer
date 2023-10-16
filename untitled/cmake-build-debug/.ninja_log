@@ -1,0 +1,5 @@
+# ninja log v5
+0	180	1697439700073195495	CMakeFiles/untitled.dir/main.cpp.o	7600c1ef10634004
+0	194	1697439700089195545	CMakeFiles/untitled.dir/bugs_sniffer.cpp.o	6c3edc53a0d3ed80
+0	18	1697451229524691455	build.ninja	c7556473cf3ae2f
+194	232	1697439700125195658	untitled	f3a9538c035dec20
