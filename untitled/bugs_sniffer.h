@@ -20,6 +20,7 @@
 #include <iostream>
 #include <algorithm>
 using namespace std;
+static const bool DEBUG_MODE = true;
 /* define some constants here... */
 #define ETHER_ADDR_LEN 6
 // ether type
@@ -151,4 +152,6 @@ bool load_traffic();
 // test function
 void nop_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
 void pcap_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+// some time function
+void alarm_callback(int sig);
 #endif //UNTITLED_BUGS_SNIFFER_H

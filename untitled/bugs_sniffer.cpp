@@ -40,7 +40,30 @@ pcap_t* open_dev(char* dev_name, int timeout){
     return pcap_handle;
 }
 pcap_t* do_open_dev(char* dev_name, int snapLen, int promisc, int timeout){
-    return pcap_open_live(dev_name, snapLen, promisc, timeout, ERROR_BUFFER);
+    int status;
+    pcap_t* handle = pcap_create(dev_name, ERROR_BUFFER);
+    status = pcap_set_snaplen(handle, snapLen);
+    if (status != 0)cout<<pcap_statustostr(status)<<endl;
+
+    if (promisc) {
+        status = pcap_set_immediate_mode(handle, 1);
+        if (status != 0)cout << pcap_statustostr(status) << endl;
+    }
+
+    status = pcap_set_timeout(handle, timeout);
+    if (status != 0)cout<<pcap_statustostr(status)<<endl;
+
+    status = pcap_activate(handle);
+    if (status < 0) {
+        cout << pcap_statustostr(status) << endl;
+    }
+    else if (status > 0) {
+        //pcap_activate() succeeded, but it's warning us of a problem it had.
+        cout<< dev_name<<": "<<
+            pcap_statustostr(status)<<", "<< pcap_geterr(handle)<<endl;
+    }
+    //cout<< status<<endl;
+    return handle;
 }
 void close_dev(pcap_t* handle){
     pcap_close(handle);
@@ -95,10 +118,10 @@ void get_dev_statistics(struct dev_info& devInfo, int timeWindow, int cnt, vecto
         }
     } else{ // use the dispatch function's feature to count packets number within a time window cnt-times
         int packet_count;
+        int id = 0;
         for (int i = 0; i < cnt; ++i) {
-            pcap_t* handle = open_dev(devInfo.dev_name, timeWindow*1000);
-            //pcap_set_timeout(devInfo.dev_handle, timeWindow); // ms
-            int id = 0;
+            id = 0;
+            pcap_t* handle = open_dev(devInfo.dev_name, timeWindow);
             packet_count = pcap_dispatch(handle, -1, nop_callback, (unsigned char*)&id);
             close_dev(handle);
             results.push_back(packet_count);
@@ -173,6 +196,8 @@ port_info* do_udp(unsigned char* args, const struct pcap_pkthdr* packetHeader, c
 
 void nop_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
     int* id = (int*) args;
+    ++(*id);
+    //cout<<"Packet id: "<<++(*id)<<endl;
 }
 void pcap_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
     int* id = (int*) args;
