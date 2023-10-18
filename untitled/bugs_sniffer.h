@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <map>
 #include <ctime>
 #include <cstdio>
 #include <vector>
@@ -17,6 +18,7 @@
 #include <csignal>
 #include <cstring>
 #include <iostream>
+#include <algorithm>
 using namespace std;
 /* define some constants here... */
 #define ETHER_ADDR_LEN 6
@@ -94,30 +96,59 @@ struct udp_header{
     u_short tot_len;
     u_short check_sum;
 };
+// some usually used variable struct
 struct dev_info{
     char* dev_name;
     char* dev_description;
     pcap_t* dev_handle;
     bpf_u_int32 ipaddress;
+    vector<string> dev_ips;
     char* filter_exp;
 };
+struct ip_info{
+    char* src_ip;
+    char* src_dst;
+};
+struct port_info{
+    int src_port;
+    int dst_port;
+};
+struct Msg{
+    int timestamp;
+    port_info* portInfo;
+    ip_info* ipInfo;
+    char* content;
+};
 /* define some variables here... */
-char ERROR_BUF[PCAP_ERRBUF_SIZE];
+static char ERROR_BUFFER[PCAP_ERRBUF_SIZE];
 /* define some functions here... */
+// 统一用传回参数，函数只返回运行结果的状态
 // basic information
-pcap_t* open_dev(char* dev_name);
+pcap_t* open_dev(char* dev_name, int timeout);
 void close_dev(pcap_t* handle);
 bool set_filter(struct dev_info& devInfo, char* filter_exp);
 bool unset_filter(struct dev_info& devInfo);
-int list_all_dev(bool detailed, vector<char*>& results);                   /* 获得所有的网卡名称 */
-bool get_dev_ip(char* dev_name, vector<char*>& results);
+int list_all_dev(bool detailed, map<char*,vector<string> >& results);                   /* 获得所有的网卡名称 */
+bool get_dev_masked_ip(struct dev_info& devInfo, vector<char*>& results);
 void get_dev_statistics(struct dev_info& devInfo, int timeWindow, int cnt, vector<int>& results, bool legacy);
+pcap_t* do_open_dev(char* dev_name, int snapLen, int promisc, int timeout);
 // analyze the traffic
 uint16_t check_ethernet_type(struct ether_header& etherhdr);
 bool convert_to_mac(char* mac, string& result); // convert_to_mac(mac, &result)
+port_info* do_tcp(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+port_info* do_udp(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+bool do_icmp();
+bool do_arp();
+bool do_rarp();
+bool do_ip();
+bool do_ipv6();
+bool do_http();
+bool do_https();
+bool analyze();
 // file related
 bool save_traffic(struct dev_info& devInfo);
 bool load_traffic();
 // test function
+void nop_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
 void pcap_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
 #endif //UNTITLED_BUGS_SNIFFER_H
