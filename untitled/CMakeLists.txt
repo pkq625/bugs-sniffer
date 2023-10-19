@@ -8,4 +8,4 @@ add_executable(untitled main.cpp
         bugs_sniffer.cpp
         sniffer_windows.cpp
         sniffer_windows.h)
-target_link_libraries(untitled -lpcap -lncurses)
+target_link_libraries(untitled -lpcap -lncursesw)

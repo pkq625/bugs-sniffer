@@ -61,6 +61,12 @@ build CMakeFiles/untitled.dir/bugs_sniffer.cpp.o: CXX_COMPILER__untitled_unscann
   OBJECT_DIR = CMakeFiles/untitled.dir
   OBJECT_FILE_DIR = CMakeFiles/untitled.dir
 
+build CMakeFiles/untitled.dir/sniffer_windows.cpp.o: CXX_COMPILER__untitled_unscanned_Debug /home/neko/CLionProjects/untitled/sniffer_windows.cpp || cmake_object_order_depends_target_untitled
+  DEP_FILE = CMakeFiles/untitled.dir/sniffer_windows.cpp.o.d
+  FLAGS = -g -fdiagnostics-color=always
+  OBJECT_DIR = CMakeFiles/untitled.dir
+  OBJECT_FILE_DIR = CMakeFiles/untitled.dir
+
 
 # =============================================================================
 # Link build statements for EXECUTABLE target untitled
@@ -69,9 +75,9 @@ build CMakeFiles/untitled.dir/bugs_sniffer.cpp.o: CXX_COMPILER__untitled_unscann
 #############################################
 # Link the executable untitled
 
-build untitled: CXX_EXECUTABLE_LINKER__untitled_Debug CMakeFiles/untitled.dir/main.cpp.o CMakeFiles/untitled.dir/bugs_sniffer.cpp.o
+build untitled: CXX_EXECUTABLE_LINKER__untitled_Debug CMakeFiles/untitled.dir/main.cpp.o CMakeFiles/untitled.dir/bugs_sniffer.cpp.o CMakeFiles/untitled.dir/sniffer_windows.cpp.o
   FLAGS = -g
-  LINK_LIBRARIES = -lpcap
+  LINK_LIBRARIES = -lpcap  -lncursesw
   OBJECT_DIR = CMakeFiles/untitled.dir
   POST_BUILD = :
   PRE_LINK = :

@@ -1,7 +1,8 @@
 #include "sniffer_windows.h"
 
 int main() {
-    get_all_dev_info();
+    start_sniffer();
+//    get_all_dev_info();
 //    initscr(); // initialize screen 初始化ncurses
 //    // 启动颜色支持
 //    start_color();
