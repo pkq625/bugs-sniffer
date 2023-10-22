@@ -52,6 +52,14 @@ struct display_arp{
     string target_mac;
     string target_ip;
 };
+struct display_ipv6{
+    string traffic_class;
+    unsigned int payload_len;
+    string nxt_header_protocol;
+    unsigned int hop_limit;
+    string src_ip;
+    string dst_ip;
+};
 struct display_tcp{
     int src_port;
     int dst_port;
@@ -70,6 +78,16 @@ struct display_udp{
     string checksum;
 };
 struct display_icmp{
-
+    string type;
+    string code;
+    string checksum;
+    string identifier;
+    string seq;
+};
+struct display_icmp6{
+    string type;
+    string code;
+    string checksum;
+    string flags;
 };
 #endif //UNTITLED_GLOBALVARS_H

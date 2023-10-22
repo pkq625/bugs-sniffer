@@ -10,18 +10,18 @@ int main() {
     pcap_lookupnet("wlo1", &ipaddress, &ipmask, ERROR_BUFFER);
 
     struct bpf_program filter{};
-    if (pcap_compile(handle, &filter, "icmp", 0, ipaddress) != -1){
+    if (pcap_compile(handle, &filter, "ip6", 0, ipaddress) != -1){
         if (pcap_setfilter(handle, &filter) != -1)cout<<"filter set ok"<<endl;
     }
 
     struct pcap_pkthdr header{};
-//    while (true) {
+    while (true) {
         const u_char *packet = pcap_next(handle, &header);
         int id = 0;
         if (packet != nullptr) {
             analyze_ether_packet((u_char *) &id, &header, packet);
         }
-//    }
+    }
     pcap_close(handle);
 //    return 0;
 

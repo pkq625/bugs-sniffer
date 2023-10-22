@@ -12,6 +12,8 @@
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
+#include <netinet/ip6.h>
+#include <netinet/icmp6.h>
 #include <netinet/ip_icmp.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
@@ -153,10 +155,13 @@ void analyze_ip_packet(unsigned char* args, const struct pcap_pkthdr* packetHead
                        uint16_t ether_type);
 void analyze_ipv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
                          uint16_t ether_type);
-void analyze_tcp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
-void analyze_udp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+void analyze_tcp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+        string lower_layer_type);
+void analyze_udp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+        string lower_layer_type);
 void analyze_icmp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
 void analyze_others_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+void analyze_icmpv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
 // file related
 bool save_traffic(struct dev_info& devInfo);
 bool load_traffic();
@@ -172,6 +177,9 @@ string check_arp_protocol_type(uint16_t t);
 string check_arp_opcode(uint16_t t);
 string convert_uint16_to_hex_string(uint16_t t);
 string convert_uint8_to_hex_string(uint8_t t);
+string check_ip6_nxt_header_protocol(uint8_t nxt);
+string convert_uint32_to_hex_string(uint32_t t);
+void check_icmp_type_code(uint8_t type, uint8_t code, string&icmp_type, string&icmp_code);
 // for debugging... ignore me, ignore me...
 string unsignedCharToHexString(unsigned char ch);
 string unsigned_short_to_hex_string(unsigned short int a);

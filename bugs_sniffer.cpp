@@ -3,6 +3,7 @@
 //
 #include "globalvars.h"
 #include "bugs_sniffer.h"
+
 int list_all_dev(bool detailed, map<char*,vector<string> >& results) {
     pcap_if_t *all_dev;
     if ((pcap_findalldevs(&all_dev, ERROR_BUFFER)) == -1) {
@@ -316,9 +317,9 @@ void analyze_ip_packet(unsigned char* args, const struct pcap_pkthdr* packetHead
 
     // 判断protocol，如果还有上一层，就传给对应的处理函数
     if (ip_header->protocol == IP_TYPE_TCP){
-        analyze_tcp_packet(args, packetHeader, packetContent);
+        analyze_tcp_packet(args, packetHeader, packetContent, "ip");
     }else if (ip_header->protocol == IP_TYPE_UDP){
-        analyze_udp_packet(args, packetHeader, packetContent);
+        analyze_udp_packet(args, packetHeader, packetContent, "ip");
     }else if (ip_header->protocol == IP_TYPE_ICMP){
         analyze_icmp_packet(args, packetHeader, packetContent);
     }else if (ip_header->protocol == IP_TYPE_IGMP){
@@ -346,8 +347,15 @@ string check_tcp_flags(uint8_t t){
     res += ")";
     return res;
 }
-void analyze_tcp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
-    tcphdr* tcpHeader = (tcphdr*) (packetContent + sizeof(struct iphdr)+sizeof(ether_header));
+void analyze_tcp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+        string lower_layer_type){
+    tcphdr* tcpHeader;
+    if (lower_layer_type == "ip"){
+        tcpHeader = (tcphdr*) (packetContent + sizeof(struct iphdr)+sizeof(ether_header));
+    }else if (lower_layer_type == "ip6"){
+        tcpHeader = (tcphdr*) (packetContent + sizeof(struct ip6_hdr)+sizeof(ether_header));
+    }
+
 
 //    printf("Captured a TCP packet (length: %d bytes):\n", packetHeader->len);
 //    printf("Source Port: %d\n", ntohs(tcpHeader->th_sport));
@@ -381,8 +389,14 @@ void analyze_tcp_packet(unsigned char* args, const struct pcap_pkthdr* packetHea
 //    cout<<displayTcp.check_sum<<endl;
 //    cout<<displayTcp.urgent_pointer<<endl;
 }
-void analyze_udp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
-    udphdr* udpHeader = (udphdr*) (packetContent + sizeof(struct iphdr)+sizeof(ether_header));
+void analyze_udp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+        string lower_layer_type){
+    udphdr* udpHeader;
+    if (lower_layer_type == "ip"){
+        udpHeader = (udphdr*) (packetContent + sizeof(struct iphdr)+sizeof(ether_header));
+    }else if (lower_layer_type == "ip6"){
+        udpHeader = (udphdr*) (packetContent + sizeof(struct ip6_hdr)+sizeof(ether_header));
+    }
 //    cout<<ntohs(udpHeader->uh_sport)<<endl;
 //    cout<<ntohs(udpHeader->uh_dport)<<endl;
 //    cout<<ntohs(udpHeader->uh_ulen)<<endl;
@@ -395,16 +409,76 @@ void analyze_udp_packet(unsigned char* args, const struct pcap_pkthdr* packetHea
 }
 void analyze_icmp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
     struct icmphdr *icmp_header = (struct icmphdr *)(packetContent + sizeof(struct ether_header) + sizeof(iphdr));
-    cout<<convert_uint8_to_hex_string(icmp_header->type)<<endl;
-    cout<<convert_uint8_to_hex_string(icmp_header->code)<<endl;
-    cout<<convert_uint16_to_hex_string(ntohs(icmp_header->checksum))<<endl;
+//    cout<<convert_uint8_to_hex_string(icmp_header->type)<<endl;
+//    cout<<convert_uint8_to_hex_string(icmp_header->code)<<endl;
+//    cout<<convert_uint16_to_hex_string(ntohs(icmp_header->checksum))<<endl;
+    struct display_icmp displayIcmp{};
+    check_icmp_type_code(icmp_header->type, icmp_header->code, displayIcmp.type, displayIcmp.code);
+    displayIcmp.checksum = convert_uint16_to_hex_string(ntohs(icmp_header->checksum));
+    displayIcmp.identifier = convert_uint16_to_hex_string(ntohs(icmp_header->un.echo.id));
+    displayIcmp.seq = convert_uint16_to_hex_string(ntohs(icmp_header->un.echo.sequence));
+//    cout<<displayIcmp.type<<endl;
+//    cout<<displayIcmp.code<<endl;
+//    cout<<displayIcmp.checksum<<endl;
+//    cout<<displayIcmp.identifier<<endl;
+//    cout<<displayIcmp.seq<<endl;
 }
-void analyze_others_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
 
+void check_icmp_type_code(uint8_t type, uint8_t code, string&icmp_type, string&icmp_code) {
+    icmp_type = convert_uint8_to_hex_string(type);
+    icmp_type += " (";
+    icmp_code = convert_uint8_to_hex_string(code);
+    icmp_code += " (";
+    if (type == ICMP_ECHO) {
+        icmp_type += "ICMP Echo (Ping) Request";
+
+    } else if(type == ICMP_ECHOREPLY){
+        icmp_type += "ICMP Echo (Ping) Reply";
+
+    }
+    else if (type == ICMP_DEST_UNREACH) {
+        icmp_type += "Destination Unreachable";
+        /* Codes for Destination Unreachable. */
+        if (code == ICMP_NET_UNREACH){
+            icmp_code += "Network Unreachable";
+        }else if (code == ICMP_HOST_UNREACH){
+            icmp_code += "Host Unreachable";
+        }else if (code == ICMP_PROT_UNREACH){
+            icmp_code += "Protocol Unreachable";
+        }else if (code == ICMP_PORT_UNREACH){
+            icmp_code += "Port Unreachable";
+        }
+    } else if (type == ICMP_TIME_EXCEEDED) {
+        icmp_type += "Time Exceeded";
+        /* Codes for TIME_EXCEEDED. */
+        if (code == ICMP_EXC_TTL){
+            icmp_code += "TTL count exceeded";
+        }else if (code == ICMP_EXC_FRAGTIME){
+            icmp_code += "Fragment Reass time exceeded";
+        }
+    } else if (type == ICMP_REDIRECT){
+        icmp_type += "Redirect (change route)";
+        /* Codes for Redirect. */
+        if (code == ICMP_REDIR_NET){
+            icmp_code += "Redirect Net";
+        }else if (code == ICMP_REDIR_HOST){
+            icmp_code += "Redirect Host";
+        }else if (code == ICMP_REDIR_NETTOS){
+            icmp_code += "Redirect Net for TOS";
+        }else if (code == ICMP_REDIR_HOSTTOS){
+            icmp_code += "Redirect Host for TOS";
+        }
+    }
+    icmp_type += ")";
+    icmp_code += ")";
+}
+
+void analyze_others_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
+    cout<<"others..."<<endl;
 }
 //
 string unsignedCharToHexString(unsigned char ch){
-    const char hex_chars[] = "0123456789abcdef";
+    const char hex_chars[] = "0123456789ABCDEF";
     string result = "";
     unsigned int highHalfByte = (ch >> 4) & 0x0f;
     unsigned int lowHalfByte = (ch & 0x0f);
@@ -438,6 +512,11 @@ string convert_uint16_to_hex_string(uint16_t t){
 }
 string convert_uint8_to_hex_string(uint8_t t){
     char str[20];
+    sprintf(str, "0x%02X", t);
+    return str;
+}
+string convert_uint32_to_hex_string(uint32_t t){
+    char str[30];
     sprintf(str, "0x%02X", t);
     return str;
 }
@@ -582,8 +661,73 @@ void analyze_rarp_packet(unsigned char* args, const struct pcap_pkthdr* packetHe
 }
 void analyze_ipv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
                          uint16_t ether_type){
-    cout<<"ipv6"<<endl;
+    struct ip6_hdr* ipv6Header = (struct ip6_hdr*)(packetContent + sizeof(ether_header));
+    struct display_ipv6 displayIpv6{};
+    // Print the source and destination IPv6 addresses
+    char src_ip[INET6_ADDRSTRLEN];
+    char dst_ip[INET6_ADDRSTRLEN];
+    inet_ntop(AF_INET6, &ipv6Header->ip6_src, src_ip, sizeof(src_ip));
+    inet_ntop(AF_INET6, &ipv6Header->ip6_dst, dst_ip, sizeof(dst_ip));
+//    printf("Source IP: %s\n", src_ip);
+//    printf("Destination IP: %s\n", dst_ip);
+//
+//    printf("Traffic Class: 0x%02X\n", ipv6Header->ip6_ctlun.ip6_un1.ip6_un1_flow);
+//    printf("Payload Length: %u\n", ntohs(ipv6Header->ip6_ctlun.ip6_un1.ip6_un1_plen));
+//    printf("Next Header (Protocol): %u\n", ipv6Header->ip6_ctlun.ip6_un1.ip6_un1_nxt);
+//    printf("Hop Limit: %u\n", ipv6Header->ip6_ctlun.ip6_un1.ip6_un1_hlim);
+
+    displayIpv6.src_ip = src_ip;
+    displayIpv6.dst_ip = dst_ip;
+    displayIpv6.traffic_class = convert_uint32_to_hex_string(ipv6Header->ip6_ctlun.ip6_un1.ip6_un1_flow);
+    displayIpv6.payload_len = ntohs(ipv6Header->ip6_ctlun.ip6_un1.ip6_un1_plen);
+    displayIpv6.nxt_header_protocol = check_ip6_nxt_header_protocol(ipv6Header->ip6_ctlun.ip6_un1.ip6_un1_nxt);
+    displayIpv6.hop_limit = ipv6Header->ip6_ctlun.ip6_un1.ip6_un1_hlim;
+
+//    cout<<displayIpv6.src_ip<<endl;
+//    cout<<displayIpv6.dst_ip<<endl;
+//    cout<<displayIpv6.traffic_class<<endl;
+//    cout<<displayIpv6.payload_len<<endl;
+//    cout<<displayIpv6.nxt_header_protocol<<endl;
+//    cout<<displayIpv6.hop_limit<<endl;
+
+    if (ipv6Header->ip6_ctlun.ip6_un1.ip6_un1_nxt == IPPROTO_ICMPV6){
+        analyze_icmpv6_packet(args, packetHeader, packetContent);
+    }
 }
+void analyze_icmpv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
+    struct icmp6_hdr* icmp6Hdr = (struct icmp6_hdr*)(packetContent + sizeof(struct ether_header) + sizeof(struct ip6_hdr));
+
+    printf("ICMPv6 Type: %u\n", icmp6Hdr->icmp6_type);
+    printf("ICMPv6 Code: %u\n", icmp6Hdr->icmp6_code);
+    icmp6Hdr->icmp6_cksum;
+
+}
+string check_icmpv6_type_code(uint8_t type){
+    string res;
+    if (type == ICMP6_ECHO_REQUEST){
+        res += "ICMPv6 Type: Echo Request (Ping)";
+    }else if(type == ICMP6_ECHO_REPLY){
+        res += "ICMPv6 Type: Echo Reply (Ping Reply)";
+    }else if(type == ND_NEIGHBOR_ADVERT){
+
+    }
+    return res;
+}
+string check_ip6_nxt_header_protocol(uint8_t nxt) {
+    string res;
+    if (nxt == IPPROTO_TCP){
+        res += "TCP";
+    }else if (nxt == IPPROTO_UDP){
+        res += "UDP";
+    }else if (nxt == IPPROTO_ICMPV6){
+        res += "ICMPv6";
+    }
+    res += " (";
+    res += convert_uint8_to_hex_string(nxt);
+    res += ")";
+    return res;
+}
+
 // do the real packet cunting job
 void packet_counter_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
 //    int id = *(int*)args;
