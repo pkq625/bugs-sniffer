@@ -28,7 +28,48 @@ extern unordered_map<const char*, pcap_t*>get_statistic_handles;
 #define MAC_ADDRESS_LENGTH 18
 #define TIME_BUFFER_LENGTH 26
 
-struct display_ip_layer{
+struct display_ip{
+    int version;
+    int header_len;
+    string tos;
+    int tot_len;
+    string ident;
+    string flags;
+    int offset;
+    int ttl;
+    string protocol;
+    string checksum;
     string src_ip, dst_ip;
+};
+struct display_arp{
+    string hardware_type;
+    string protocol_type;
+    int hardware_size;
+    int protocol_size;
+    string opcode;
+    string sender_mac;
+    string sender_ip;
+    string target_mac;
+    string target_ip;
+};
+struct display_tcp{
+    int src_port;
+    int dst_port;
+    unsigned int seq;
+    unsigned int ack;
+    int data_offset;
+    string flags;
+    int window_size;
+    string checksum;
+    int urgent_pointer;
+};
+struct display_udp{
+    int src_port;
+    int dst_port;
+    int len;
+    string checksum;
+};
+struct display_icmp{
+
 };
 #endif //UNTITLED_GLOBALVARS_H

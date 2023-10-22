@@ -9,9 +9,10 @@
 #include <unistd.h>
 #include <netinet/ether.h>
 #include <netinet/if_ether.h>
-#include <linux/ip.h>
-#include <linux/tcp.h>
-#include <linux/udp.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+#include <netinet/udp.h>
+#include <netinet/ip_icmp.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -24,6 +25,7 @@
 #include <cstdio>
 #include <chrono>
 #include <cerrno>
+#include <sstream>
 #include <fstream>
 #include <csignal>
 #include <cstring>
@@ -31,6 +33,7 @@
 #include <algorithm>
 using namespace std;
 static const bool DEBUG_MODE = true;
+static ostringstream oss;
 /* define some constants here... */
 //#define ETHER_ADDR_LEN 6
 // ether type
@@ -44,10 +47,10 @@ static const bool DEBUG_MODE = true;
 #define ETHER_TYPE_VLAN      (0x9100)
 #define ETHER_TYPE_VLAN2     (0x9200)
 // IP offset
-#define IP_RF      (0x8000) /* 保留 */
-#define IP_DF      (0x4000) /* 别分段 */
-#define IP_MF      (0x2000) /* 多碎片标志 */
-#define IP_OFFMASK (0x1FFF) /* 分段 */
+//#define IP_RF      (0x8000) /* 保留 */
+//#define IP_DF      (0x4000) /* 别分段 */
+//#define IP_MF      (0x2000) /* 多碎片标志 */
+//#define IP_OFFMASK (0x1FFF) /* 分段 */
 // IP type
 #define IP_TYPE_ICMP (1)
 #define IP_TYPE_IGMP (2)
@@ -57,38 +60,38 @@ static const bool DEBUG_MODE = true;
 #define IP_TYPE_RDP (27)
 #define IP_TYPE_OSPF (89)
 // tcp head flags
-#define TH_FIN (0x01)
-#define TH_SYN (0x02)
-#define TH_RST (0x04)
-#define TH_PUSH (0x08)
-#define TH_ACK (0x10)
-#define TH_URG (0x20)
-#define TH_ECE (0x40)
-#define TH_CWR (0x80)
+//#define TH_FIN (0x01)
+//#define TH_SYN (0x02)
+//#define TH_RST (0x04)
+//#define TH_PUSH (0x08)
+//#define TH_ACK (0x10)
+//#define TH_URG (0x20)
+//#define TH_ECE (0x40)
+//#define TH_CWR (0x80)
 /* define some structures here... */
 //struct ether_header{
 //    u_char dst_mac[ETHER_ADDR_LEN];
 //    u_char src_mac[ETHER_ADDR_LEN];
 //    u_short ether_type;
 //};
-struct ip_header {
-#if BYTE_ORDER == LITTLE_ENDIAN
-    u_int header_len: 4;
-    u_int version: 4;
-#endif
-#if BYTE_ORDER == BIG_ENDIAN
-    u_int version: 4;
-    u_int header_len: 4;
-#endif
-    u_char tos: 8;
-    u_short total_len; /* .. */
-    u_short ident;     /* identifier */
-    u_short offset;    /**/
-    u_char ttl:8;
-    u_char protocol:8;
-    int checksum:16;
-    struct in_addr src_ip, dst_ip;
-};
+//struct ip_header {
+//#if BYTE_ORDER == LITTLE_ENDIAN
+//    u_int header_len: 4;
+//    u_int version: 4;
+//#endif
+//#if BYTE_ORDER == BIG_ENDIAN
+//    u_int version: 4;
+//    u_int header_len: 4;
+//#endif
+//    u_char tos: 8;
+//    u_short total_len; /* .. */
+//    u_short ident;     /* identifier */
+//    u_short offset;    /**/
+//    u_char ttl:8;
+//    u_char protocol:8;
+//    int checksum:16;
+//    struct in_addr src_ip, dst_ip;
+//};
 struct tcp_header{
     u_short sport;
     u_short dport;
@@ -150,12 +153,10 @@ void analyze_ip_packet(unsigned char* args, const struct pcap_pkthdr* packetHead
                        uint16_t ether_type);
 void analyze_ipv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
                          uint16_t ether_type);
-void do_tcp(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
-void do_udp(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
-bool do_icmp();
-bool do_http();
-bool do_https();
-bool analyze();
+void analyze_tcp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+void analyze_udp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+void analyze_icmp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+void analyze_others_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
 // file related
 bool save_traffic(struct dev_info& devInfo);
 bool load_traffic();
@@ -165,6 +166,12 @@ void packet_counter_callback(unsigned char* args, const struct pcap_pkthdr* pack
 void packet_processor_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
 void* capture_thread(void* dev);
 // some time function
+// for convert to human readable
+string check_arp_hardware_type(uint16_t t);
+string check_arp_protocol_type(uint16_t t);
+string check_arp_opcode(uint16_t t);
+string convert_uint16_to_hex_string(uint16_t t);
+string convert_uint8_to_hex_string(uint8_t t);
 // for debugging... ignore me, ignore me...
 string unsignedCharToHexString(unsigned char ch);
 string unsigned_short_to_hex_string(unsigned short int a);

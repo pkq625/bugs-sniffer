@@ -174,7 +174,7 @@ bool convert_to_mac(char* mac, string& result){
     return true;
 }
 void do_tcp(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
-    int prev_len = sizeof(struct ether_header) + sizeof(ip_header);
+    int prev_len = sizeof(struct ether_header) + sizeof(iphdr);
     tcp_header* tcpHdr = (tcp_header*)(packetContent + prev_len);
     unsigned int tcp_len = tcpHdr->head_len - prev_len;
 //    port_info* portInfo = (port_info*) malloc(sizeof(port_info));
@@ -188,7 +188,7 @@ void do_tcp(unsigned char* args, const struct pcap_pkthdr* packetHeader, const u
 //    return portInfo;
 }
 void do_udp(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
-    int prev_len = sizeof(struct ether_header) + sizeof(ip_header);
+    int prev_len = sizeof(struct ether_header) + sizeof(iphdr);
     udp_header* udpHdr = (udp_header*)(packetContent + prev_len);
     unsigned int udp_len = udpHdr->tot_len - prev_len;
 //    port_info* portInfo = (port_info*) malloc(sizeof(port_info));
@@ -238,35 +238,169 @@ void analyze_ether_packet(unsigned char* args, const struct pcap_pkthdr* packetH
     }
 }
 // throw the ip packet here...
+string check_ip_protocol(uint8_t t){
+    string res;
+    if (t == IP_TYPE_TCP) res += "TCP";
+    else if (t == IP_TYPE_UDP) res += "UDP";
+    else if (t == IP_TYPE_ICMP) res += "ICMP";
+    else if (t == IP_TYPE_RDP) res += "RDP";
+    res += " (";
+    res += convert_uint16_to_hex_string(t);
+    res += ")";
+    return res;
+}
+string check_ip_flags(uint16_t t){
+    string res;
+    if (t == IP_DF) res += "Don't fragment";
+    else if (t == IP_MF) res += "Multi fragment";
+    else if (t == IP_RF) res += "Reserved";
+    else res += "UNKNOWN";
+    res += " (";
+    res += convert_uint16_to_hex_string(t);
+    res += ")";
+    return res;
+}
 void analyze_ip_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
         uint16_t ether_type){
-    display_ip_layer displayIpLayer = {};
-
+    display_ip displayIP = {};
     struct ether_header *etherHeader = (struct ether_header*)packetHeader;
-    ip_header* ipHeader = (ip_header*)(packetContent + sizeof(struct ether_header));
+    iphdr* ip_header = (iphdr*)(packetContent + sizeof(struct ether_header));
     unsigned int ip_len = packetHeader->len - sizeof(struct ether_header);
-    if (ip_len < sizeof(struct ip_header)){
+    if (ip_len < sizeof(struct iphdr)){
         cout << "Invalid IP packet"<<endl;
         return;
     }
-    // 拿到src ip和dst ip
-    displayIpLayer.src_ip = inet_ntoa(ipHeader->src_ip);
-    displayIpLayer.dst_ip = inet_ntoa(ipHeader->dst_ip);
+    // 转为hunman readable
+    displayIP.version = ip_header->version;
+    displayIP.header_len += ip_header->ihl * 4;
+    displayIP.ttl = ip_header->ttl;
+    displayIP.protocol = check_ip_protocol(ip_header->protocol);
+    displayIP.tot_len = ntohs(ip_header->tot_len);
+    displayIP.ident = convert_uint16_to_hex_string(ntohs(ip_header->id));
+    displayIP.offset = ntohs(ip_header->frag_off) & IP_OFFMASK;
+    displayIP.checksum = convert_uint16_to_hex_string(ntohs(ip_header->check));
+    displayIP.flags = check_ip_flags(ntohs(ip_header->frag_off));
+    displayIP.tos = convert_uint8_to_hex_string(ip_header->tos);
+    struct in_addr ipv4_address{};
+    ipv4_address.s_addr = htonl(ip_header->saddr);
+    displayIP.src_ip = inet_ntoa(ipv4_address);
+    ipv4_address.s_addr = htonl(ip_header->daddr);
+    displayIP.dst_ip = inet_ntoa(ipv4_address);
 
+//    cout<<displayIP.version<<endl;
+//    cout<<displayIP.header_len<<endl;
+//    cout<<displayIP.protocol<<endl;
+//    cout<<displayIP.tot_len<<endl;
+//    cout<<displayIP.ttl<<endl;
+//    cout<<displayIP.tos<<endl;
+//    cout<<displayIP.ident<<endl;
+    cout<<displayIP.checksum<<endl;
+//    cout<<displayIP.flags<<endl;
+//    cout<<displayIP.offset<<endl;
+//    cout<<endl;
+
+//    printf("Captured an IP packet (length: %d bytes):\n", packetHeader->len);
+//    printf("Version: %d\n", ip_header->version);
+//    printf("Header Length: %d bytes\n", ip_header->ihl * 4);
+//    printf("Type of Service (TOS): 0x%02X\n", ip_header->tos);
+//    printf("Total Length: %d bytes\n", ntohs(ip_header->tot_len));
+//    printf("Identifier: 0x%04X\n", ntohs(ip_header->id));
+//    printf("Flags: 0x%02X\n", ntohs(ip_header->frag_off));
+//    printf("Fragment Offset: %d bytes\n", ntohs(ip_header->frag_off) & IP_OFFMASK);
+//    printf("Time to Live (TTL): %d\n", ip_header->ttl);
+//    printf("Protocol: %d\n", ip_header->protocol);
+//    printf("Checksum: 0x%04X\n", ntohs(ip_header->check));
+//    printf("Source IP: %s\n", inet_ntoa(ip_header->saddr));
+//    printf("Destination IP: %s\n", inet_ntoa(ip_header->daddr));
     struct tm* pkt_time = localtime((const time_t*)&packetHeader->ts.tv_sec);
 
     // 判断protocol，如果还有上一层，就传给对应的处理函数
-//    if (ipHeader->protocol == IP_TYPE_TCP){
-//        do_tcp();
-//    }else if (ipHeader->protocol == IP_TYPE_UDP){
-//        do_udp();
-//    }else if (ipHeader->protocol == IP_TYPE_ICMP){
-//        do_icmp();
-//    }else if (ipHeader->protocol == IP_TYPE_IGMP){
-//
-//    }else {
-//        do_others();
-//    }
+    if (ip_header->protocol == IP_TYPE_TCP){
+        analyze_tcp_packet(args, packetHeader, packetContent);
+    }else if (ip_header->protocol == IP_TYPE_UDP){
+        analyze_udp_packet(args, packetHeader, packetContent);
+    }else if (ip_header->protocol == IP_TYPE_ICMP){
+        analyze_icmp_packet(args, packetHeader, packetContent);
+    }else if (ip_header->protocol == IP_TYPE_IGMP){
+
+    }else {
+        analyze_others_packet(args, packetHeader, packetContent);
+    }
+}
+string check_tcp_flags(uint8_t t){
+    int tmp = 1;
+    string res = convert_uint8_to_hex_string(t);
+    res += " (";
+    for (int i = 0; i < 5; ++i) {
+        if (t & tmp){
+            if (res.size() > 7) res += ", ";
+            if (tmp == TH_ACK) res += "ACK";
+            else if (tmp == TH_FIN) res += "FIN";
+            else if (tmp == TH_RST) res += "RST";
+            else if (tmp == TH_PUSH) res += "PUSH";
+            else if (tmp == TH_SYN) res += "SYN";
+            else if (tmp == TH_URG) res += "URG";
+        }
+        tmp <<= 1;
+    }
+    res += ")";
+    return res;
+}
+void analyze_tcp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
+    tcphdr* tcpHeader = (tcphdr*) (packetContent + sizeof(struct iphdr)+sizeof(ether_header));
+
+//    printf("Captured a TCP packet (length: %d bytes):\n", packetHeader->len);
+//    printf("Source Port: %d\n", ntohs(tcpHeader->th_sport));
+//    printf("Destination Port: %d\n", ntohs(tcpHeader->th_dport));
+//    printf("Sequence Number: %u\n", ntohl(tcpHeader->seq));
+//    printf("Acknowledgment Number: %u\n", ntohl(tcpHeader->ack));
+//    printf("Data Offset: %d bytes\n", tcpHeader->th_off * 4);
+//    printf("Flags: 0x%02X\n", tcpHeader->th_flags);
+//    printf("Window Size: %d\n", ntohs(tcpHeader->window));
+//    printf("Checksum: 0x%04X\n", ntohs(tcpHeader->check));
+//    printf("Urgent Pointer: %d\n", ntohs(tcpHeader->urg_ptr));
+
+    display_tcp displayTcp{};
+    displayTcp.src_port = ntohs(tcpHeader->th_sport);
+    displayTcp.dst_port = ntohs(tcpHeader->th_dport);
+    displayTcp.seq = ntohl(tcpHeader->seq);
+    displayTcp.ack = ntohl(tcpHeader->ack);
+    displayTcp.data_offset = tcpHeader->th_off * 4;
+    displayTcp.flags = check_tcp_flags(tcpHeader->th_flags);
+    displayTcp.window_size = ntohs(tcpHeader->window);
+    displayTcp.checksum = convert_uint16_to_hex_string(ntohs(tcpHeader->check));
+    displayTcp.urgent_pointer = ntohs(tcpHeader->urg_ptr);
+
+//    cout<<displayTcp.src_port<<endl;
+//    cout<<displayTcp.dst_port<<endl;
+//    cout<<displayTcp.seq<<endl;
+//    cout<<displayTcp.ack<<endl;
+//    cout<<displayTcp.data_offset<<endl;
+//    cout<<displayTcp.flags<<endl;
+//    cout<<displayTcp.window_size<<endl;
+//    cout<<displayTcp.check_sum<<endl;
+//    cout<<displayTcp.urgent_pointer<<endl;
+}
+void analyze_udp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
+    udphdr* udpHeader = (udphdr*) (packetContent + sizeof(struct iphdr)+sizeof(ether_header));
+//    cout<<ntohs(udpHeader->uh_sport)<<endl;
+//    cout<<ntohs(udpHeader->uh_dport)<<endl;
+//    cout<<ntohs(udpHeader->uh_ulen)<<endl;
+//    cout<<convert_uint16_to_hex_string(ntohs(udpHeader->uh_sum))<<endl;
+    display_udp displayUdp{};
+    displayUdp.src_port = ntohs(udpHeader->uh_sport);
+    displayUdp.dst_port = ntohs(udpHeader->uh_dport);
+    displayUdp.dst_port = ntohs(udpHeader->uh_ulen);
+    displayUdp.checksum = convert_uint16_to_hex_string(ntohs(udpHeader->uh_sum));
+}
+void analyze_icmp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
+    struct icmphdr *icmp_header = (struct icmphdr *)(packetContent + sizeof(struct ether_header) + sizeof(iphdr));
+    cout<<convert_uint8_to_hex_string(icmp_header->type)<<endl;
+    cout<<convert_uint8_to_hex_string(icmp_header->code)<<endl;
+    cout<<convert_uint16_to_hex_string(ntohs(icmp_header->checksum))<<endl;
+}
+void analyze_others_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
+
 }
 //
 string unsignedCharToHexString(unsigned char ch){
@@ -286,6 +420,48 @@ string unsigned_short_to_hex_string(unsigned short int a){
     }
     return result;
 }
+string check_arp_hardware_type(uint16_t t){
+    string res;
+    if (t == ARPHRD_ETHER) res += "Ethernet";
+    else if (t == ARPHRD_IEEE802) res += "IEEE802";
+    else res += "UNKNOWN";
+    res += " (";
+    res += to_string(t);
+    res += ")";
+    return res;
+}
+string convert_uint16_to_hex_string(uint16_t t){
+    oss << "0x" << std::hex << t;
+    string res = oss.str();
+    oss.str("");
+    return res;
+}
+string convert_uint8_to_hex_string(uint8_t t){
+    char str[20];
+    sprintf(str, "0x%02X", t);
+    return str;
+}
+string check_arp_protocol_type(uint16_t t){
+    string res;
+    if (t == ETHER_TYPE_IPV4) res += "IPv4";
+    else res += "UNKNOWN";
+    res += " (";
+    res += convert_uint16_to_hex_string(t);
+    res += ")";
+    return res;
+}
+string check_arp_opcode(uint16_t t){
+    string res;
+    if (t == ARPOP_REQUEST)res += "request";
+    else if (t == ARPOP_REPLY) res += "reply";
+    else if (t == ARPOP_RREQUEST) res += "rarp request";
+    else if (t == ARPOP_RREPLY) res += "rarp reply";
+    else res += "UNKNOWN";
+    res += " (";
+    res += to_string(t);
+    res += ")";
+    return res;
+}
 void analyze_arp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
                         uint16_t ether_type){
     unsigned int arp_len = packetHeader->len - sizeof(struct ether_header);
@@ -293,39 +469,116 @@ void analyze_arp_packet(unsigned char* args, const struct pcap_pkthdr* packetHea
         cout<<"Invalid ARP packet..."<<endl;
         return;
     }
-    for (int i = 0; i < packetHeader->len; i++) {
-        printf("%02X ", packetContent[i]);
-    }
-    printf("\n");
-    cout<< sizeof(ether_header)<<endl;
-    cout<< arp_len<<endl;
+    /*打印raw的*/
+//    for (int i = 0; i < packetHeader->len; i++) {
+//        printf("%02X ", packetContent[i]);
+//    }
+//    printf("\n");
+//    cout<< sizeof(ether_header)<<endl;
+//    cout<< arp_len<<endl;
 
     ether_arp* etherArp = (ether_arp*)(packetContent + sizeof(struct ether_header));
     arphdr* arp_header = &etherArp->ea_hdr;
-    printf("Hardware type: %d\n", ntohs(arp_header->ar_hrd));
-    printf("Protocol type: 0x%04X\n", ntohs(arp_header->ar_pro));
-    printf("Hardware size: %d\n", arp_header->ar_hln);
-    printf("Protocol size: %d\n", arp_header->ar_pln);
-    printf("Operation: %s\n", ntohs(arp_header->ar_op) == ARPOP_REQUEST ? "Request" : "Reply");
-    printf("Sender MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
-           etherArp->arp_sha[0], etherArp->arp_sha[1],
-           etherArp->arp_sha[2], etherArp->arp_sha[3],
-           etherArp->arp_sha[4], etherArp->arp_sha[5]);
-    printf("Sender IP: %d.%d.%d.%d\n",
-           etherArp->arp_spa[0], etherArp->arp_spa[1],
-           etherArp->arp_spa[2], etherArp->arp_spa[3]);
+    /*转为人类可读的。。。*/
+    struct display_arp displayArp{};
+    displayArp.hardware_type = check_arp_hardware_type(ntohs(arp_header->ar_hrd));
+    displayArp.protocol_type = check_arp_protocol_type(ntohs(arp_header->ar_pro));
+    displayArp.hardware_size = arp_header->ar_hln;
+    displayArp.protocol_size = arp_header->ar_pln;
+    displayArp.opcode = check_arp_opcode(ntohs(arp_header->ar_op));
 
-    printf("Target MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
-           etherArp->arp_tha[0], etherArp->arp_tha[1],
-           etherArp->arp_tha[2], etherArp->arp_tha[3],
-           etherArp->arp_tha[4], etherArp->arp_tha[5]);
-    printf("Target IP: %d.%d.%d.%d\n",
-           etherArp->arp_tpa[0], etherArp->arp_tpa[1],
-           etherArp->arp_tpa[2], etherArp->arp_tpa[3]);
+    convert_to_mac(ether_ntoa((struct ether_addr *)&etherArp->arp_sha), displayArp.sender_mac);
+    convert_to_mac(ether_ntoa((struct ether_addr *)&etherArp->arp_tha), displayArp.target_mac);
+    struct in_addr ipv4_address{};
+    memcpy(&ipv4_address.s_addr, etherArp->arp_spa, 4);
+    displayArp.sender_ip = inet_ntoa(ipv4_address);
+    memcpy(&ipv4_address.s_addr, etherArp->arp_tpa, 4);
+    displayArp.target_ip = inet_ntoa(ipv4_address);
+//    cout<<hardware_type<<endl;
+//    cout<<protocol_type<<endl;
+//    cout<<hardware_size<<endl;
+//    cout<<protocol_size<<endl;
+//    cout<<op<<endl;
+//    cout<<sender_mac<<endl;
+//    cout<<target_mac<<endl;
+//    cout<<sender_ip<<endl;
+//    cout<<target_ip<<endl;
+//    cout<<endl;
+
+//    printf("Hardware type: %d\n", ntohs(arp_header->ar_hrd));
+//    printf("Protocol type: 0x%04X\n", ntohs(arp_header->ar_pro));
+//    printf("Hardware size: %d\n", arp_header->ar_hln);
+//    printf("Protocol size: %d\n", arp_header->ar_pln);
+//    printf("Operation: %s\n", ntohs(arp_header->ar_op) == ARPOP_REQUEST ? "Request" : "Reply");
+//    printf("Sender MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+//           etherArp->arp_sha[0], etherArp->arp_sha[1],
+//           etherArp->arp_sha[2], etherArp->arp_sha[3],
+//           etherArp->arp_sha[4], etherArp->arp_sha[5]);
+//    printf("Sender IP: %d.%d.%d.%d\n",
+//           etherArp->arp_spa[0], etherArp->arp_spa[1],
+//           etherArp->arp_spa[2], etherArp->arp_spa[3]);
+//
+//    printf("Target MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+//           etherArp->arp_tha[0], etherArp->arp_tha[1],
+//           etherArp->arp_tha[2], etherArp->arp_tha[3],
+//           etherArp->arp_tha[4], etherArp->arp_tha[5]);
+//    printf("Target IP: %d.%d.%d.%d\n",
+//           etherArp->arp_tpa[0], etherArp->arp_tpa[1],
+//           etherArp->arp_tpa[2], etherArp->arp_tpa[3]);
 }
 void analyze_rarp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
                         uint16_t ether_type){
-    cout<<"rarp"<<endl;
+    ether_arp* etherArp = (ether_arp*)(packetContent + sizeof(struct ether_header));
+    arphdr* arp_header = &etherArp->ea_hdr;
+    /*转为人类可读的。。。*/
+    struct display_arp displayArp{};
+    displayArp.hardware_type = check_arp_hardware_type(ntohs(arp_header->ar_hrd));
+    displayArp.protocol_type = check_arp_protocol_type(ntohs(arp_header->ar_pro));
+    displayArp.hardware_size = arp_header->ar_hln;
+    displayArp.protocol_size = arp_header->ar_pln;
+    displayArp.opcode = check_arp_opcode(ntohs(arp_header->ar_op));
+
+    convert_to_mac(ether_ntoa((struct ether_addr *)&etherArp->arp_sha), displayArp.sender_mac);
+    convert_to_mac(ether_ntoa((struct ether_addr *)&etherArp->arp_tha), displayArp.target_mac);
+    struct in_addr ipv4_address{};
+    memcpy(&ipv4_address.s_addr, etherArp->arp_spa, 4);
+    displayArp.sender_ip = inet_ntoa(ipv4_address);
+    memcpy(&ipv4_address.s_addr, etherArp->arp_tpa, 4);
+    displayArp.target_ip = inet_ntoa(ipv4_address);
+//    unsigned int arp_len = packetHeader->len - sizeof(struct ether_header);
+//    if (arp_len < sizeof(arphdr)){
+//        cout<<"Invalid ARP packet..."<<endl;
+//        return;
+//    }
+//    for (int i = 0; i < packetHeader->len; i++) {
+//        printf("%02X ", packetContent[i]);
+//    }
+//    printf("\n");
+//    cout<< sizeof(ether_header)<<endl;
+//    cout<< arp_len<<endl;
+//
+//    ether_arp* etherArp = (ether_arp*)(packetContent + sizeof(struct ether_header));
+//    arphdr* arp_header = &etherArp->ea_hdr;
+//    printf("Hardware type: %d\n", ntohs(arp_header->ar_hrd));
+//    printf("Protocol type: 0x%04X\n", ntohs(arp_header->ar_pro));
+//    printf("Hardware size: %d\n", arp_header->ar_hln);
+//    printf("Protocol size: %d\n", arp_header->ar_pln);
+//    printf("Operation: %s\n", ntohs(arp_header->ar_op) == ARPOP_RREQUEST  ? "Request" : "Reply");
+//    printf("Sender MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+//           etherArp->arp_sha[0], etherArp->arp_sha[1],
+//           etherArp->arp_sha[2], etherArp->arp_sha[3],
+//           etherArp->arp_sha[4], etherArp->arp_sha[5]);
+//    printf("Sender IP: %d.%d.%d.%d\n",
+//           etherArp->arp_spa[0], etherArp->arp_spa[1],
+//           etherArp->arp_spa[2], etherArp->arp_spa[3]);
+//
+//    printf("Target MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+//           etherArp->arp_tha[0], etherArp->arp_tha[1],
+//           etherArp->arp_tha[2], etherArp->arp_tha[3],
+//           etherArp->arp_tha[4], etherArp->arp_tha[5]);
+//    printf("Target IP: %d.%d.%d.%d\n",
+//           etherArp->arp_tpa[0], etherArp->arp_tpa[1],
+//           etherArp->arp_tpa[2], etherArp->arp_tpa[3]);
 }
 void analyze_ipv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
                          uint16_t ether_type){
