@@ -8,21 +8,29 @@ int main() {
     handle = pcap_open_live("wlo1", BUFSIZ, 0, 0, errbuf);
     bpf_u_int32 ipaddress, ipmask; // unsigned int
     pcap_lookupnet("wlo1", &ipaddress, &ipmask, ERROR_BUFFER);
+    load_traffic("./2.pcap");
 
-    struct bpf_program filter{};
-    if (pcap_compile(handle, &filter, "ip6", 0, ipaddress) != -1){
-        if (pcap_setfilter(handle, &filter) != -1)cout<<"filter set ok"<<endl;
-    }
+//    pcap_t* pcapOutput = pcap_open_dead(DLT_EN10MB, 65535);
+//    pcap_dumper_t * t = open_pcap_dumper(pcapOutput, "./2.pcap");
 
-    struct pcap_pkthdr header{};
-    while (true) {
-        const u_char *packet = pcap_next(handle, &header);
-        int id = 0;
-        if (packet != nullptr) {
-            analyze_ether_packet((u_char *) &id, &header, packet);
-        }
-    }
-    pcap_close(handle);
+
+//    struct bpf_program filter{};
+//    if (pcap_compile(handle, &filter, "tcp and port 443", 0, ipaddress) != -1){
+//        if (pcap_setfilter(handle, &filter) != -1)cout<<"filter set ok"<<endl;
+//    }
+//
+//    struct pcap_pkthdr header{};
+////    while (true) {
+//        const u_char *packet = pcap_next(handle, &header);
+//        int id = 0;
+//        if (packet != nullptr) {
+//            analyze_ether_packet((u_char *) &id, &header, packet);
+//            packet_saver((u_char *) t, &header, packet);
+//
+////        }
+//    }
+//    close_dumper(t);
+//    pcap_close(handle);
 //    return 0;
 
 //    get_all_dev_info();

@@ -119,26 +119,27 @@ struct dev_info{
     bpf_u_int32 ipaddress;
     vector<string> dev_ips;
     char* filter_exp;
+    pcap_dumper_t *pcap_dumper;
 };
-struct ip_info{
-    char* src_ip;
-    char* src_dst;
-};
-struct Msg{
-    int timestamp;
-    ip_info* ipInfo;
-    char* content;
-};
+//struct ip_info{
+//    char* src_ip;
+//    char* src_dst;
+//};
+//struct Msg{
+//    int timestamp;
+//    ip_info* ipInfo;
+//    char* content;
+//};
 /* define some variables here... */
 static char ERROR_BUFFER[PCAP_ERRBUF_SIZE];
 /* define some functions here... */
-// 统一用传回参数，函数只返回运行结果的状态
+// 统一用传回参数，函数只返回运行结果的状态（说说而已。。写的时候是怎么方便怎么来的。。嘿嘿。。^p^但总体还是有规律的..吧
 // basic information
 pcap_t* open_dev(const char* dev_name, int timeout);
 void close_dev(pcap_t* handle);
 bool set_filter(struct dev_info& devInfo, char* filter_exp);
 bool unset_filter(struct dev_info& devInfo);
-int list_all_dev(bool detailed, map<char*,vector<string> >& results);                   /* 获得所有的网卡名称 */
+int list_all_dev(bool detailed, map<char*,vector<string> >& results);  /* 获得所有的网卡名称 */
 bool get_dev_masked_ip(struct dev_info& devInfo, vector<char*>& results);
 //int get_dev_statistics(const char*dev_name, //struct dev_info& devInfo,
 //        int timeWindow, bool legacy);
@@ -147,28 +148,52 @@ pcap_t* do_open_dev(const char* dev_name, int snapLen, int promisc, int timeout)
 uint16_t check_ethernet_type(struct ether_header& etherhdr);
 bool convert_to_mac(char* mac, string& result); // convert_to_mac(mac, &result)
 void analyze_ether_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
-void analyze_arp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+int analyze_arp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
                         uint16_t ether_type);
-void analyze_rarp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+int analyze_rarp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
                         uint16_t ether_type);
-void analyze_ip_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+int analyze_ip_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
                        uint16_t ether_type);
-void analyze_ipv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+int analyze_ipv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
                          uint16_t ether_type);
-void analyze_tcp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+int analyze_tcp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
         string lower_layer_type);
-void analyze_udp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+int analyze_udp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
         string lower_layer_type);
-void analyze_icmp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
-void analyze_others_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
-void analyze_icmpv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+int analyze_icmp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+int analyze_others_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+int analyze_icmpv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+int analyze_vlan_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+                         uint16_t ether_type);
+int analyze_others_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+                         uint16_t ether_type);
+/*UDP*/
+int analyze_dns_packet(const unsigned char* data, unsigned int len);
+int analyze_dhcp_packet(const unsigned char* data);
+int analyze_ssdp_packet(const unsigned char* data);
+int analyze_quic_packet(const unsigned char* data);
+int analyze_dtls12_packet(const unsigned char* data);
+int analyze_stun_packet(const unsigned char* data);
+/*TCP*/
+int analyze_http_packet(const unsigned char* data);
+int analyze_tls_packet(const unsigned char* data);
+int analyze_http_json_packet(const unsigned char* data);
+int analyze_ssl_packet(const unsigned char* data);
+int analyze_https_packet(const unsigned char* data);
+/*tcp flow track*/
+void track_tcp_ip_port_bpf_based(char*dev_name, const string& src_ip, int src_port, const string& dst_ip, int dst_port);
+void track_tcp_ip_port_hashtable_based(const string& ip, int port);
+void track_process_ports_based(int pid, char* dev_name);
+void track_process_bpf_based(int pid);
 // file related
-bool save_traffic(struct dev_info& devInfo);
-bool load_traffic();
-// test function
-void packet_counter_callback(const struct pcap_pkthdr* pkthdr, const unsigned char* packet, const string& interface);
-void packet_counter_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
-void packet_processor_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+//bool save_traffic(struct dev_info& devInfo, const string& filepath);
+bool load_traffic(const char *filepath);
+pcap_dumper_t * open_pcap_dumper(pcap_t* handle, const char *filepath);
+void close_dumper(pcap_dumper_t * dumper);
+// callbacks
+void packet_saver(unsigned char* args, const struct pcap_pkthdr *packetHeader, const unsigned char*packetContent);
+void packet_reader(unsigned char*args, const struct pcap_pkthdr *packetHeader, const unsigned char*packetContent);
+void packet_counter_callback(const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent, const string& interface);
 void* capture_thread(void* dev);
 // some time function
 // for convert to human readable
@@ -179,8 +204,14 @@ string convert_uint16_to_hex_string(uint16_t t);
 string convert_uint8_to_hex_string(uint8_t t);
 string check_ip6_nxt_header_protocol(uint8_t nxt);
 string convert_uint32_to_hex_string(uint32_t t);
+string check_icmpv6_type_code(uint8_t type);
+string uchar2string(const unsigned  char* s, int lidx, int ridx);
+int hexstring2decnum(const string& hexstr);
 void check_icmp_type_code(uint8_t type, uint8_t code, string&icmp_type, string&icmp_code);
 // for debugging... ignore me, ignore me...
+// test function
 string unsignedCharToHexString(unsigned char ch);
 string unsigned_short_to_hex_string(unsigned short int a);
+void packet_counter_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+void packet_processor_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
 #endif //UNTITLED_BUGS_SNIFFER_H

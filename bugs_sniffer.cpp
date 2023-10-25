@@ -203,40 +203,65 @@ void do_udp(unsigned char* args, const struct pcap_pkthdr* packetHeader, const u
 //    return portInfo;
 }
 // throw the first packet here... it will call a bulk of functions to unpack the layers...
+string check_ethertype(uint16_t t){
+    string res;
+    if (t == ETHER_TYPE_IPV4){
+        res += "IPv4";
+    }else if (t == ETHER_TYPE_ARP){
+        res += "ARP";
+    }else if (t == ETHER_TYPE_PARP){
+        res += "PARP";
+    }else if (t == ETHER_TYPE_IPV6){
+        res += "IPV6";
+    }else if (t == ETHERTYPE_VLAN){
+        res += "VLAN";
+    }else{
+        return convert_uint16_to_hex_string(t);
+    }
+    res += " (";
+    res += convert_uint16_to_hex_string(t);
+    res += ")";
+    return res;
+}
 void analyze_ether_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
     uint16_t ether_type;
-    for (int i = 0; i < strlen((const char*)packetContent); ++i) {
-        cout<<unsignedCharToHexString(packetContent[i])<<" ";
-    }
-    cout<<endl;
+//    for (int i = 0; i < strlen((const char*)packetContent); ++i) {
+//        cout<<unsignedCharToHexString(packetContent[i])<<" ";
+//    }
+//    cout<<endl;
     struct ether_header* etherHeader = (struct ether_header*)packetContent;
     ether_type = check_ethernet_type(etherHeader);
     string srcmac, dstmax;
     convert_to_mac(ether_ntoa((struct ether_addr *)&etherHeader->ether_shost), srcmac);
     convert_to_mac(ether_ntoa((struct ether_addr *)&etherHeader->ether_dhost), dstmax);
-    cout<<etherHeader->ether_type<<", "<<srcmac<<", "<<dstmax<<endl;
+//    cout<<etherHeader->ether_type<<", "<<srcmac<<", "<<dstmax<<endl;
+    display_ether displayEther{};
+    displayEther.src_mac = srcmac;
+    displayEther.dst_mac = dstmax;
+    displayEther.type = check_ethertype(ether_type);
+    displayEther.tot_len = packetHeader->len;
+    displayEther.timestamp = packetHeader->ts.tv_sec;
+
     if (ether_type == ETHER_TYPE_IPV4){
-//        cout<<"ipv4"<<endl;
+        displayEther.nxt_type = 1;
         analyze_ip_packet(args, packetHeader, packetContent, ether_type);
     }else if (ether_type == ETHER_TYPE_ARP){
-//        cout<<"arp"<<endl;
+        displayEther.nxt_type = (1<<1);
         analyze_arp_packet(args, packetHeader, packetContent, ether_type);
     }else if (ether_type == ETHER_TYPE_PARP){
-//        cout<<"rarp"<<endl;
+        displayEther.nxt_type = (1<<2);
         analyze_rarp_packet(args, packetHeader, packetContent, ether_type);
     }else if (ether_type == ETHER_TYPE_IPV6){
-//        cout<<"ipv6"<<endl;
+        displayEther.nxt_type = (1<<3);
         analyze_ipv6_packet(args, packetHeader, packetContent, ether_type);
     }else if (ether_type == ETHERTYPE_VLAN){
-        cout<<"vlan"<<endl;
-    }
-    else if (ether_type == 0x00){
-        // TODO
-        cout<<"unknown!!!"<<endl;
+        displayEther.nxt_type = (1<<4);
+        analyze_vlan_packet(args, packetHeader, packetContent, ether_type);
     }else{
-        // TODO
-        cout<<"others"<<endl;
+//        displayEther.nxt_type = 1;
+        analyze_others_packet(args, packetHeader, packetContent, ether_type);
     }
+    ethers.emplace_back(displayEther);
 }
 // throw the ip packet here...
 string check_ip_protocol(uint8_t t){
@@ -261,15 +286,23 @@ string check_ip_flags(uint16_t t){
     res += ")";
     return res;
 }
-void analyze_ip_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+int analyze_vlan_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+                       uint16_t ether_type){
+    //TODO
+}
+int analyze_others_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+                         uint16_t ether_type){
+    //TODO
+}
+int analyze_ip_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
         uint16_t ether_type){
     display_ip displayIP = {};
     struct ether_header *etherHeader = (struct ether_header*)packetHeader;
     iphdr* ip_header = (iphdr*)(packetContent + sizeof(struct ether_header));
     unsigned int ip_len = packetHeader->len - sizeof(struct ether_header);
     if (ip_len < sizeof(struct iphdr)){
-        cout << "Invalid IP packet"<<endl;
-        return;
+//        cout << "Invalid IP packet"<<endl;
+        return -1;
     }
     // 转为hunman readable
     displayIP.version = ip_header->version;
@@ -295,7 +328,7 @@ void analyze_ip_packet(unsigned char* args, const struct pcap_pkthdr* packetHead
 //    cout<<displayIP.ttl<<endl;
 //    cout<<displayIP.tos<<endl;
 //    cout<<displayIP.ident<<endl;
-    cout<<displayIP.checksum<<endl;
+//    cout<<displayIP.checksum<<endl;
 //    cout<<displayIP.flags<<endl;
 //    cout<<displayIP.offset<<endl;
 //    cout<<endl;
@@ -317,16 +350,21 @@ void analyze_ip_packet(unsigned char* args, const struct pcap_pkthdr* packetHead
 
     // 判断protocol，如果还有上一层，就传给对应的处理函数
     if (ip_header->protocol == IP_TYPE_TCP){
-        analyze_tcp_packet(args, packetHeader, packetContent, "ip");
+        displayIP.nxt_type = 1;
+        displayIP.nxt_idx = analyze_tcp_packet(args, packetHeader, packetContent, "ip");
     }else if (ip_header->protocol == IP_TYPE_UDP){
-        analyze_udp_packet(args, packetHeader, packetContent, "ip");
+        displayIP.nxt_type = (1<<1);
+        displayIP.nxt_idx = analyze_udp_packet(args, packetHeader, packetContent, "ip");
     }else if (ip_header->protocol == IP_TYPE_ICMP){
-        analyze_icmp_packet(args, packetHeader, packetContent);
+        displayIP.nxt_type = (1<<2);
+        displayIP.nxt_idx = analyze_icmp_packet(args, packetHeader, packetContent);
     }else if (ip_header->protocol == IP_TYPE_IGMP){
 
     }else {
         analyze_others_packet(args, packetHeader, packetContent);
     }
+    ips.emplace_back(displayIP);
+    return ips.size() - 1;
 }
 string check_tcp_flags(uint8_t t){
     int tmp = 1;
@@ -347,7 +385,7 @@ string check_tcp_flags(uint8_t t){
     res += ")";
     return res;
 }
-void analyze_tcp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+int analyze_tcp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
         string lower_layer_type){
     tcphdr* tcpHeader;
     if (lower_layer_type == "ip"){
@@ -378,7 +416,26 @@ void analyze_tcp_packet(unsigned char* args, const struct pcap_pkthdr* packetHea
     displayTcp.window_size = ntohs(tcpHeader->window);
     displayTcp.checksum = convert_uint16_to_hex_string(ntohs(tcpHeader->check));
     displayTcp.urgent_pointer = ntohs(tcpHeader->urg_ptr);
-
+    const unsigned char* data = (packetContent + sizeof(struct ether_header) + sizeof(iphdr) + sizeof(tcp_header));
+    unsigned long data_size = packetHeader->len - (unsigned long)(sizeof(struct ether_header) + sizeof(iphdr) + sizeof(tcp_header));
+    if (displayTcp.src_port == 443 || displayTcp.dst_port == 443){
+        displayTcp.nxt_type = 1;
+        displayTcp.nxt_idx = analyze_tls_packet(data);
+    }else{
+        string tmp = uchar2string(data, 0, data_size < 50?data_size:50);
+        cout<<tmp<<endl;
+        if (tmp.find("485454502F312E31") != string::npos || // HTTP/1.1
+        tmp.find("474554")!= string::npos // GET
+        || tmp.find("504F5354")!= string::npos){ // POST
+            // http
+            displayTcp.nxt_type = (1<<1);
+            displayTcp.nxt_idx = analyze_http_packet(data);
+        }else{
+//            cout<<"tcp"<<endl;
+        }
+    }
+    tcps.emplace_back(displayTcp);
+    return tcps.size() - 1;
 //    cout<<displayTcp.src_port<<endl;
 //    cout<<displayTcp.dst_port<<endl;
 //    cout<<displayTcp.seq<<endl;
@@ -389,7 +446,38 @@ void analyze_tcp_packet(unsigned char* args, const struct pcap_pkthdr* packetHea
 //    cout<<displayTcp.check_sum<<endl;
 //    cout<<displayTcp.urgent_pointer<<endl;
 }
-void analyze_udp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+int analyze_http_packet(const unsigned char* data){
+    return 0;
+}
+int analyze_tls_packet(const unsigned char* data){
+    string tmp;
+    tmp = uchar2string(data, 0, 1);
+    display_tls displayTls{};
+    if (tmp== "16"){
+        // handshake
+        displayTls.type = "Handshake";
+//        cout<<"tls handshake"<<endl;
+    }else if(tmp == "17"){
+        //application data
+        displayTls.type = "Application Data";
+//        cout<<"application data"<<endl;
+    }else if(tmp == "15"){
+        displayTls.type = "Alert";
+//        cout<<"Alert"<<endl;
+    }
+    if (uchar2string(data, 1, 3) == "0303") {
+        // TLS1.3
+        displayTls.version = "TLS 1.3";
+//        cout<<"tls 1.3"<<endl;
+    }else if(uchar2string(data, 1, 3) == "0301"){
+        // TLS1.0
+        displayTls.version = "TLS 1.0";
+//        cout<<"tls 1.0"<<endl;
+    }
+    tlss.emplace_back(displayTls);
+    return tlss.size() - 1;
+}
+int analyze_udp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
         string lower_layer_type){
     udphdr* udpHeader;
     if (lower_layer_type == "ip"){
@@ -404,10 +492,135 @@ void analyze_udp_packet(unsigned char* args, const struct pcap_pkthdr* packetHea
     display_udp displayUdp{};
     displayUdp.src_port = ntohs(udpHeader->uh_sport);
     displayUdp.dst_port = ntohs(udpHeader->uh_dport);
-    displayUdp.dst_port = ntohs(udpHeader->uh_ulen);
+    displayUdp.len = ntohs(udpHeader->uh_ulen);
     displayUdp.checksum = convert_uint16_to_hex_string(ntohs(udpHeader->uh_sum));
+    const unsigned char* data = packetContent + sizeof(struct ether_header) + sizeof(iphdr) + sizeof(udphdr);
+    unsigned long data_size = packetHeader->len - (unsigned long)(sizeof(struct ether_header) + sizeof(iphdr) + sizeof(udphdr));
+    if(displayUdp.src_port == 53 || displayUdp.dst_port == 53){
+        /*DNS*/
+        // 端口一定是53
+        displayUdp.nxt_type = 1;
+        displayUdp.nxt_idx = analyze_dns_packet(data, data_size);
+    }else if((displayUdp.src_port == 68 && displayUdp.dst_port == 67) || (displayUdp.src_port == 67 && displayUdp.dst_port == 68)){
+        /*DHCP*/
+        displayUdp.nxt_type = (1<<1);
+        displayUdp.nxt_idx = analyze_dhcp_packet(data);
+    }else if(displayUdp.dst_port == 1900){
+        /*ssdp*/
+        displayUdp.nxt_type = (1<<2);
+        displayUdp.nxt_idx = analyze_ssdp_packet(data);
+    }else if(uchar2string(data, 1, 3) == "fefd"
+             && hexstring2decnum(uchar2string(data, 0, 1)) / 20 < 4
+             && hexstring2decnum(uchar2string(data, 0, 1)) / 20 >= 0
+    ){
+        /*dtls12*/
+        displayUdp.nxt_type = (1<<3);
+        displayUdp.nxt_idx = analyze_dtls12_packet(data);
+    }else if((uchar2string(data, 0, 2) == "0001" || uchar2string(data, 0, 2) == "0101")
+            && data_size <= 120
+    ){
+        /*stun*/
+        // stun头部的开始两位必须为0
+        // 0001, 0101
+        displayUdp.nxt_type = (1<<4);
+        displayUdp.nxt_idx = analyze_stun_packet(data);
+    }else if((lower_layer_type == "ip" && data_size <= 1370) || (lower_layer_type == "ip6" && data_size <= 1350)
+
+    ){
+        /*QUIC*/
+        // 当前QUIC在IPV6下的最大报文长度为1350，IPV4下的最大报文长度为1370.
+        // 所有的Quic包都是以一个1~51字节的公共头开始的
+        // TODO
+        displayUdp.nxt_type = (1<<5);
+        displayUdp.nxt_idx = analyze_quic_packet(data);
+    }
+    udps.emplace_back(displayUdp);
+    return udps.size() - 1;
 }
-void analyze_icmp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
+string uchar2string(const unsigned  char* s, int lidx, int ridx){
+    char str[100];
+    for (int i = lidx; i < ridx; ++i) {
+        sprintf(str+2*i, "%02X", s[i]);
+    }
+    return str;
+}
+int hexstring2decnum(const string& hexstr){
+    char *endptr;
+    int ans = (int)strtoul(hexstr.c_str(), &endptr, 16);
+    if (*endptr != '\0') {
+//        cerr << "Error: Invalid hexadecimal string." << endl;
+        return 0;
+    }
+    return ans;
+}
+int analyze_dns_packet(const unsigned char* data, unsigned int len){
+    struct display_dns displayDns{};
+    displayDns.transaction_id = uchar2string(data, 0, 2);
+    displayDns.flags = uchar2string(data, 2, 4);
+    if (displayDns.flags == "8180"){
+        displayDns.flags = "Standard query response";
+    }else if (displayDns.flags == "0100"){
+        displayDns.flags = "Standard query";
+    }
+    displayDns.question_num = hexstring2decnum(uchar2string(data, 4, 6));
+    // TODO
+    data[6];
+    dnss.emplace_back(displayDns);
+    return dnss.size() - 1;
+}
+int analyze_dhcp_packet(const unsigned char* data){
+//    cout<<"DHCP!"<<endl;
+    return 0;
+}
+int analyze_ssdp_packet(const unsigned char* data){
+//    cout<<"SSDP"<<endl;
+    return 0;
+}
+int analyze_quic_packet(const unsigned char* data){
+//    cout<<"QUIC"<<endl;
+    return 0;;
+}
+int analyze_dtls12_packet(const unsigned char* data){
+    int tmp = hexstring2decnum(uchar2string(data, 0, 1));
+    display_dtls displayDtls{};
+    switch (tmp) {
+        case 20:
+//            cout << "ChangeCipherSpec" << endl;
+            displayDtls.type = "ChangeCipherSpec";
+            break;
+        case 21:
+//            cout << "Alert" << endl;
+            displayDtls.type = "Alert";
+            break;
+        case 22:
+//            cout << "Handshake" << endl;
+            displayDtls.type = "Handshake";
+            break;
+        case 23:
+//            cout << "Application Data" << endl;
+            displayDtls.type = "Application Data";
+            break;
+        default:
+//            cout << "wrong!!!" << endl;
+            break;
+    }
+    dtlss.emplace_back(displayDtls);
+    return dtlss.size() - 1;
+}
+int analyze_stun_packet(const unsigned char* data){
+    string tmp = uchar2string(data, 0, 2);
+    display_stun displayStun{};
+    if (tmp == "0001"){
+        displayStun.type = "Binding request";
+//        cout << "Binding request"<<endl;
+    }else if (tmp == "0101"){
+//        cout<<"Binding success"<<endl;
+        displayStun.type = "Binding success";
+    }
+    stuns.emplace_back(displayStun);
+    return stuns.size();
+}
+int analyze_icmp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
     struct icmphdr *icmp_header = (struct icmphdr *)(packetContent + sizeof(struct ether_header) + sizeof(iphdr));
 //    cout<<convert_uint8_to_hex_string(icmp_header->type)<<endl;
 //    cout<<convert_uint8_to_hex_string(icmp_header->code)<<endl;
@@ -422,6 +635,8 @@ void analyze_icmp_packet(unsigned char* args, const struct pcap_pkthdr* packetHe
 //    cout<<displayIcmp.checksum<<endl;
 //    cout<<displayIcmp.identifier<<endl;
 //    cout<<displayIcmp.seq<<endl;
+    icmps.emplace_back(displayIcmp);
+    return icmps.size() - 1;
 }
 
 void check_icmp_type_code(uint8_t type, uint8_t code, string&icmp_type, string&icmp_code) {
@@ -473,8 +688,9 @@ void check_icmp_type_code(uint8_t type, uint8_t code, string&icmp_type, string&i
     icmp_code += ")";
 }
 
-void analyze_others_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
-    cout<<"others..."<<endl;
+int analyze_others_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
+//    cout<<"others..."<<endl;
+return 0;
 }
 //
 string unsignedCharToHexString(unsigned char ch){
@@ -541,12 +757,12 @@ string check_arp_opcode(uint16_t t){
     res += ")";
     return res;
 }
-void analyze_arp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+int analyze_arp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
                         uint16_t ether_type){
     unsigned int arp_len = packetHeader->len - sizeof(struct ether_header);
     if (arp_len < sizeof(arphdr)){
-        cout<<"Invalid ARP packet..."<<endl;
-        return;
+//        cout<<"Invalid ARP packet..."<<endl;
+        return 0;
     }
     /*打印raw的*/
 //    for (int i = 0; i < packetHeader->len; i++) {
@@ -573,6 +789,8 @@ void analyze_arp_packet(unsigned char* args, const struct pcap_pkthdr* packetHea
     displayArp.sender_ip = inet_ntoa(ipv4_address);
     memcpy(&ipv4_address.s_addr, etherArp->arp_tpa, 4);
     displayArp.target_ip = inet_ntoa(ipv4_address);
+    arps.emplace_back(displayArp);
+    return arps.size() - 1;
 //    cout<<hardware_type<<endl;
 //    cout<<protocol_type<<endl;
 //    cout<<hardware_size<<endl;
@@ -605,7 +823,7 @@ void analyze_arp_packet(unsigned char* args, const struct pcap_pkthdr* packetHea
 //           etherArp->arp_tpa[0], etherArp->arp_tpa[1],
 //           etherArp->arp_tpa[2], etherArp->arp_tpa[3]);
 }
-void analyze_rarp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+int analyze_rarp_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
                         uint16_t ether_type){
     ether_arp* etherArp = (ether_arp*)(packetContent + sizeof(struct ether_header));
     arphdr* arp_header = &etherArp->ea_hdr;
@@ -624,6 +842,8 @@ void analyze_rarp_packet(unsigned char* args, const struct pcap_pkthdr* packetHe
     displayArp.sender_ip = inet_ntoa(ipv4_address);
     memcpy(&ipv4_address.s_addr, etherArp->arp_tpa, 4);
     displayArp.target_ip = inet_ntoa(ipv4_address);
+    rarps.emplace_back(displayArp);
+    return rarps.size() - 1;
 //    unsigned int arp_len = packetHeader->len - sizeof(struct ether_header);
 //    if (arp_len < sizeof(arphdr)){
 //        cout<<"Invalid ARP packet..."<<endl;
@@ -659,7 +879,7 @@ void analyze_rarp_packet(unsigned char* args, const struct pcap_pkthdr* packetHe
 //           etherArp->arp_tpa[0], etherArp->arp_tpa[1],
 //           etherArp->arp_tpa[2], etherArp->arp_tpa[3]);
 }
-void analyze_ipv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
+int analyze_ipv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent,
                          uint16_t ether_type){
     struct ip6_hdr* ipv6Header = (struct ip6_hdr*)(packetContent + sizeof(ether_header));
     struct display_ipv6 displayIpv6{};
@@ -691,16 +911,25 @@ void analyze_ipv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHe
 //    cout<<displayIpv6.hop_limit<<endl;
 
     if (ipv6Header->ip6_ctlun.ip6_un1.ip6_un1_nxt == IPPROTO_ICMPV6){
-        analyze_icmpv6_packet(args, packetHeader, packetContent);
+        displayIpv6.nxt_type = 1;
+        displayIpv6.nxt_idx = analyze_icmpv6_packet(args, packetHeader, packetContent);
     }
+    ip6s.emplace_back(displayIpv6);
+    return ip6s.size() - 1;
 }
-void analyze_icmpv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
+int analyze_icmpv6_packet(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
     struct icmp6_hdr* icmp6Hdr = (struct icmp6_hdr*)(packetContent + sizeof(struct ether_header) + sizeof(struct ip6_hdr));
 
-    printf("ICMPv6 Type: %u\n", icmp6Hdr->icmp6_type);
-    printf("ICMPv6 Code: %u\n", icmp6Hdr->icmp6_code);
-    icmp6Hdr->icmp6_cksum;
+//    printf("ICMPv6 Type: %u\n", icmp6Hdr->icmp6_type);
+//    printf("ICMPv6 Code: %u\n", icmp6Hdr->icmp6_code);
 
+    struct display_icmp6 displayIcmp6{};
+    displayIcmp6.type = check_icmpv6_type_code(icmp6Hdr->icmp6_type);
+    displayIcmp6.code = convert_uint8_to_hex_string(icmp6Hdr->icmp6_code);
+    displayIcmp6.checksum = icmp6Hdr->icmp6_cksum;
+//    displayIcmp6.flags = icmp6Hdr.
+    icmp6s.emplace_back(displayIcmp6);
+    return icmp6s.size() - 1;
 }
 string check_icmpv6_type_code(uint8_t type){
     string res;
@@ -709,8 +938,13 @@ string check_icmpv6_type_code(uint8_t type){
     }else if(type == ICMP6_ECHO_REPLY){
         res += "ICMPv6 Type: Echo Reply (Ping Reply)";
     }else if(type == ND_NEIGHBOR_ADVERT){
-
+        res += "Neighbor Advertisement";
+    }else if(type == ND_NEIGHBOR_SOLICIT){
+        res += "Neighbor Solicitation";
     }
+    res += " (";
+    res += convert_uint8_to_hex_string(type);
+    res += ")";
     return res;
 }
 string check_ip6_nxt_header_protocol(uint8_t nxt) {
@@ -784,4 +1018,180 @@ void packet_processor_callback(unsigned char* args, const struct pcap_pkthdr* pa
         }
     }
     printf("\n\n");
+}
+// this is a callback func
+void packet_saver(unsigned char* args, const struct pcap_pkthdr *packetHeader, const unsigned char*packetContent) {
+    pcap_dumper_t *dumper = (pcap_dumper_t *)args;
+    // Save the packet to the pcap file
+    pcap_dump((u_char *)dumper, packetHeader, packetContent);
+}
+pcap_dumper_t * open_pcap_dumper(pcap_t* handle, const char *filepath){
+    pcap_dumper_t *dumper = pcap_dump_open(handle, filepath);
+    if (dumper == nullptr) {
+//        fprintf(stderr, "Error opening pcap file: %s\n", pcap_geterr(handle));
+        return nullptr;
+    }
+    return dumper;
+}
+void close_dumper(pcap_dumper_t * dumper){
+    pcap_dump_close(dumper);
+}
+void packet_reader(unsigned char*args, const struct pcap_pkthdr *packetHader, const unsigned char*packetContent) {
+    // This function is called for each packet in the pcap file
+    analyze_ether_packet(args, packetHader, packetContent);
+}
+bool load_traffic(const char *filepath) {
+    pcap_t *handle = pcap_open_offline(filepath, ERROR_BUFFER);
+    if (handle == nullptr) {
+        fprintf(stderr, "Error opening pcap file: %s\n", ERROR_BUFFER);
+        return false;
+    }
+    // Process packets from the pcap file
+    if (pcap_loop(handle, 0, packet_reader, nullptr) < 0) {
+//        fprintf(stderr, "Error processing packets: %s\n", pcap_geterr(handle));
+        pcap_close(handle);
+        return false;
+    }
+    pcap_close(handle);
+    return true;
+}
+/*tcp flow track*/
+// Function to replace a placeholder in a string with a value
+void track_tcp_ip_port_bpf_based(char*dev_name, const string& src_ip, int src_port, const string& dst_ip, int dst_port){
+    char filter[200];
+    sprintf(filter, "tcp and (host %s and port %d) or (host %s and port %d)", src_ip.c_str(), src_port, dst_ip.c_str(), dst_port);
+    struct bpf_program fp{};
+    pcap_t* handle = pcap_open_live(dev_name, 65536, 1, 0, ERROR_BUFFER);
+    if (pcap_compile(handle, &fp, filter, 0, PCAP_NETMASK_UNKNOWN) == -1) {
+//        cerr << "Error compiling filter" << endl;
+    }
+    if (pcap_setfilter(handle, &fp) == -1) {
+//        cerr << "Error setting filter" << endl;
+    }
+    pcap_loop(handle, 0, analyze_ether_packet, nullptr);
+    pcap_close(handle);
+}
+//void track_tcp_ip_port_hashtable_handler(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent) {
+//    struct iphdr *ip_header = (struct iphdr *) (packetContent + sizeof(ether_header));
+//    struct tcphdr *tcp_header = (struct tcphdr *) (packetContent + sizeof(ether_header) + sizeof(iphdr));
+//    if (ip_header->protocol == IPPROTO_TCP) {
+//        FlowKey flow_key{};
+//        flow_key.src_ip = in_addr{ip_header->saddr};
+//        flow_key.dst_ip = {ip_header->daddr};
+//        flow_key.src_port = ntohs(tcp_header->th_sport);
+//        flow_key.dst_port = ntohs(tcp_header->th_dport);
+//
+//        lock_guard<std::mutex> lock(flow_table_mutex);
+//        FlowStats &flow_stats = flow_table[flow_key];
+//        flow_stats.packets_sent++;
+//        flow_stats.bytes_sent += packetHeader->len;
+//    }
+//}
+//void print_flow_statistics() {
+//    while (true) {
+//        std::this_thread::sleep_for(std::chrono::seconds(1));
+//
+//        std::lock_guard<std::mutex> lock(flow_table_mutex);
+//        for (const auto& entry : flow_table) {
+//            const FlowKey& flow_key = entry.first;
+//            const FlowStats& flow_stats = entry.second;
+//
+//            // Print statistics
+//            cout << "Flow: " << inet_ntoa(flow_key.src_ip) << ":" << flow_key.src_port << " -> "
+//                      << inet_ntoa(flow_key.dst_ip) << ":" << flow_key.dst_port << " - "
+//                      << "Sent Packets: " << flow_stats.packets_sent << " - "
+//                      << "Sent Bytes: " << flow_stats.bytes_sent << endl;
+//        }
+//    }
+//}
+//void track_tcp_ip_port_hashtable_based(const string& ip, int port){
+//    const char* dev = "wlo1"; // Replace with your network interface
+//    char errbuf[PCAP_ERRBUF_SIZE];
+//    pcap_t* handle;
+//
+//    handle = pcap_open_live(dev, 65536, 1, 0, errbuf);
+//    if (handle == nullptr) {
+//        cerr << "Error opening device: " << errbuf << endl;
+//    }
+//
+//    std::string filter = "tcp"; // Filter for TCP traffic
+//    struct bpf_program fp;
+//
+//    if (pcap_compile(handle, &fp, filter.c_str(), 0, PCAP_NETMASK_UNKNOWN) == -1) {
+//        cerr << "Error compiling filter" << endl;
+//    }
+//
+//    if (pcap_setfilter(handle, &fp) == -1) {
+//        cerr << "Error setting filter" << endl;
+//    }
+//
+//    // Start a separate thread to periodically print flow statistics
+//    std::thread statistics_thread(print_flow_statistics);
+//
+//    pcap_loop(handle, 0, track_tcp_ip_port_hashtable_handler, nullptr);
+//
+//    pcap_close(handle);
+//}
+int get_ip_port(string s, int sidx, string& ip, int& port){
+    int idx = s.find(':', sidx);
+    if (idx != std::string::npos){
+        int len = 0;
+        for (int i = idx+1; i < s.size(); ++i) {
+            if (!isdigit(s[i])){
+                break;
+            }
+            len++;
+        }
+        port = std::stoi(s.substr(idx+1, len));
+        len = 0;
+        for (int i = idx-1; i >= 0; --i) {
+            if (!isdigit(s[i]) && s[i] != '.'){
+                break;
+            }
+            len++;
+        }
+        ip = s.substr(idx-len, len);
+        return idx;
+    }
+    return -1;
+}
+void get_all_ports(int pid, vector<string>&src_ips,vector<int>&src_ports,
+                   vector<string>&dst_ips,vector<int>&dst_ports
+){
+    // Build the netstat command
+    char cmd[100];
+    std::strcpy(cmd, "netstat -nap | grep ");
+    std::strcat(cmd, std::to_string(pid).c_str());
+
+    // Execute the command and capture the output
+    FILE* pipe = popen(cmd, "r");
+    if (!pipe) {
+//        cerr << "Command execution failed." << endl;
+        return;
+    }
+    char buffer[128];
+    int idx;
+    string src_ip, dst_ip;
+    int src_port, dst_port;
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        if (strstr(buffer, "tcp")) {
+            idx = get_ip_port(buffer, 0, src_ip, src_port);
+            idx = get_ip_port(buffer, idx+1, dst_ip, dst_port);
+            src_ips.push_back(src_ip);
+            src_ports.push_back(src_port);
+            dst_ips.push_back(dst_ip);
+            dst_ports.push_back(dst_port);
+        }
+    }
+}
+void track_process_ports_based(int pid, char* dev_name){
+    vector<string>src_ips, dst_ips;
+    vector<int>src_ports, dst_ports;
+    get_all_ports(pid, src_ips, src_ports, dst_ips, dst_ports);
+    for (int i = 0; i < src_ips.size(); ++i) {
+        track_tcp_ip_port_bpf_based(dev_name, src_ips[i], src_ports[i], dst_ips[i], dst_ports[i]);
+    }
+}
+void track_process_bpf_based(int pid){
+    //TODO
 }

@@ -6,6 +6,7 @@
 #define UNTITLED_SNIFFER_WINDOWS_H
 #include "bugs_sniffer.h"
 #include <ncurses.h>
+#include "globalvars.h"
 // #include <coroutine> // 使用携程来获得这些数据
 // 固定的常量
 static const int MAX_DATA_SIZE_PER_ITEM = 60;
@@ -21,12 +22,16 @@ static const int STARTUP_PAGE_INPUT_BAR_COL = 10;
 static const int STARTUP_CHECK_BOX_ROW = 10;
 static const int STARTUP_CHECK_BOX_COL = 10;
 static const int STARTUP_MAX_DEV_INFO = 2;
+static const int MAX_SHOWN_PACKETS = 2000;
 // 开始页的设备信息框
 static const int STARTUP_DEV_INFO_ROW = 15;
 static const int STARTUP_DEV_INFO_COL = 20;
 static const int STARTUP_DEV_INFO_WIDTH = 120;
 static const int STARTUP_DEV_INFO_HEIGHT_OFFSET = 2;
 static const unsigned int MAX_ALARM_TIME = 5;
+// 详情页信息
+static const int MAX_PACKET_DETAIL_ITEM = 4;
+static const int MAX_PACKETS_ITEM = 10;
 // 定义结构体
 struct win_parameter{
     int width;
@@ -62,6 +67,15 @@ struct dev_detailed_info{
     char* ip_addr;
     struct detailed_info_item* items[];
 };
+struct Msg{
+    int num;
+    string timestamp;
+    string src,dst;
+    string protocol;
+    int len;
+    string info;
+    int ether_idx;
+};
 // 公用的常量
 static win_parameter* winParameter;
 static cursor_status* cursorStatus;
@@ -92,11 +106,20 @@ static input_bar* bar_detail_filepath;
 static bool is_paused = false;
 static string expression;
 static string modes[5] = {"wired", "bluetooth", "wireless", "extern"};
+//static vector<packet>packets;
+//static vector<packet>filtered_packets;
 // q->退出或者返回上一页，f->filter, 空格->暂停or开始，i->输入【load path】，s保存当前的所有, d->当前选中的packket的detailed info
 static char current_inputted_char;
 static int current_page = 0, prev_page = 0; // 0-> size error page, 1 -> 首页, 2-> detail页
 static set<char>legal_char{' ', '/', '.', '&', '|', ':'};
 static int startup_dev_info_height;
+static vector<Msg> captured_msg;
+static int selected_msg_idx;
+static unordered_map<int, vector<string> > msg_items;
+static unordered_map<int, vector<int> > msg_stack_idxs;
+static vector<int> cur_selected_item_idxs;
+static int packet_detail_lidx, packet_detail_ridx, packet_detail_status;
+static int packets_lidx, packets_ridx;
 // functions
 void start_sniffer();
 void init_window();
@@ -113,11 +136,14 @@ void do_print_startup_input_bar();
 void do_print_checkbox();
 void do_print_dev_name();
 void do_print_statistics();
+void do_print_details_input_bar();
 void do_print_packets();
 void do_print_packet_details();
 void do_print_traffic_info();
 void do_print_error_size();
 void do_print_banner(int row, int col, int w, int h);
+void do_print_scroll(int row, int col, int w, int h, int cur_page, int tot_page);
+void do_print_captured_msg(int lidx, int ridx, int r, int c);
 // 判断函数
 bool check_window_size();
 void reshape_selected_row(int m);
@@ -128,4 +154,14 @@ void do_get_one_item(int i) ;
 void get_system_info();
 void get_current_size();
 void update_packet_count_per_sec();
+void process_msg(int lidx, int ridx);
+void process_ip(vector<string>&v, const display_ip& displayIp);
+void process_tcp(vector<string>&v, const display_tcp& displayTcp);
+void process_udp(vector<string>&v, const display_udp& displayUdp);
+void process_icmp(vector<string>&v, const display_icmp& displayIcmp);
+void process_icmp6(vector<string>&v, const display_icmp6& displayIcmp6);
+void process_arp(vector<string>&v, const display_arp& displayArp);
+void process_ip6(vector<string>&v, const display_ipv6& displayIpv6);
+void process_detailed_one_packet(int msg_idx);
+void process_one_packet_idx(int msg_idx); /*当packet_detail_status改变的时候调用，初始化的时候也需要调用一次*/
 #endif //UNTITLED_SNIFFER_WINDOWS_H

@@ -17,7 +17,7 @@ void * sniffer_thread(void *pVoid){
         if (current_page == 1){
             print_startup();
         } else if (current_page == 2){
-            //print_details();
+            print_details();
         }
         c = getch();
         if (current_cmd.find("input") != string::npos){
@@ -51,7 +51,7 @@ void * sniffer_thread(void *pVoid){
                     }
                     else if (current_page == 2) {
                         current_page = 1;
-                        quited = false;
+                        quited = true;
                         prev_page = 2;
                     }
                 }
@@ -252,7 +252,357 @@ void print_startup(){
     refresh();
     usleep(500000);
 }
+void print_details(){
+    current_page = 2;
+    clear();
+    do_print_side();
+    do_print_details_input_bar();
+    do_print_packets();
+    do_print_traffic_info();
+    do_print_packet_details();
+    refresh();
+    usleep(500000);
+}
 // 真正做事情的printer们
+void do_print_details_input_bar(){
+    // do save
+}
+void process_msg(int lidx, int ridx){
+    // 把那些包处理后放进这里。。。captured_msg
+    // maybe... there is a more elegant(优雅) way... x_x
+    for (int i = lidx; i < ridx; ++i) {
+        Msg cur_m{};
+        display_ether e = ethers[i];
+        if (e.nxt_type & 1){
+            // ip
+            display_ip tmp = ips[e.nxt_idx];
+            if (tmp.nxt_type & 1){
+                // tcp
+                display_tcp displayTcp = tcps[tmp.nxt_type];
+                if (displayTcp.nxt_type & 1){
+                    cur_m.protocol = "TLS";
+                    cur_m.info = tlss[displayTcp.nxt_idx].type;
+                }else if((displayTcp.nxt_type >> 1) & 1){
+                    cur_m.protocol = "HTTP";
+                    cur_m.info = "暂无";
+                }else{
+                    cur_m.protocol = "TCP";
+                    cur_m.info = "暂无";
+                }
+            }else if((tmp.nxt_type >> 1) & 1){
+                // udp
+                display_udp displayUdp = udps[tmp.nxt_type];
+                if (displayUdp.nxt_type & 1){
+                    cur_m.protocol = "DNS";
+                    cur_m.info = dnss[displayUdp.nxt_idx].flags;
+                }else if((displayUdp.nxt_type >> 1) & 1){
+                    cur_m.protocol = "DHCP";
+                    cur_m.info = "暂无";
+                }else if((displayUdp.nxt_type >> 2) & 1){
+                    cur_m.protocol = "SSDP";
+                    cur_m.info = "暂无";
+                }else if((displayUdp.nxt_type >> 3) & 1){
+                    cur_m.protocol = "DTLS v1.2";
+                    cur_m.info = dtlss[displayUdp.nxt_idx].type;
+                }else if((displayUdp.nxt_type >> 4) & 1){
+                    cur_m.protocol = "STUN";
+                    cur_m.info = stuns[displayUdp.nxt_idx].type;
+                }else if((displayUdp.nxt_type >> 5) & 1){
+                    cur_m.protocol = "QUIC";
+                    cur_m.info = "暂无";
+                }else{
+                    cur_m.protocol = "UDP";
+                    cur_m.info = "暂无";
+                }
+            }else if((tmp.nxt_type >> 2) & 1){
+                // icmp
+                cur_m.protocol = "ICMP";
+                cur_m.info = icmps[tmp.nxt_type].type;
+            }
+        }else if((e.nxt_type >> 1) & 1){
+            // arp
+            display_arp tmp = arps[e.nxt_idx];
+            cur_m.protocol = "ARP";
+            cur_m.info = tmp.opcode + " " + tmp.hardware_type + " " + tmp.protocol_type;
+        }else if((e.nxt_type >> 2) & 1){
+            // rarp
+            display_arp tmp = rarps[e.nxt_idx];
+            cur_m.protocol = "RARP";
+            cur_m.info = tmp.opcode + " " + tmp.hardware_type + " " + tmp.protocol_type;
+        }else if((e.nxt_type >> 3) & 1){
+            // ip6
+            display_ipv6 tmp = ip6s[e.nxt_idx];
+            if (tmp.nxt_type == 1){
+                // ICMPv6
+                cur_m.protocol = "ICMPv6";
+                cur_m.info = icmp6s[tmp.nxt_idx].type;
+            }else{
+                cur_m.protocol = "IPv6";
+                cur_m.info = "暂无";
+            }
+        }else if((e.nxt_type >> 4) & 1){
+            // TODO: vlan
+        }else{
+            cur_m.src = e.src_mac;
+            cur_m.dst = e.dst_mac;
+        }
+        if (cur_m.protocol.size() <= 1){
+            cur_m.protocol = e.type;
+        }
+        cur_m.num = captured_msg.size();
+        cur_m.timestamp = e.timestamp;
+        cur_m.len = e.tot_len;
+        cur_m.ether_idx = i;
+        captured_msg.emplace_back(cur_m);
+    }
+}
+void do_print_captured_msg(int lidx, int ridx, int r, int c, int w){
+    if (min(lidx, ridx) > captured_msg.size()) return;
+    for (int i = lidx; i < min(ridx, (int)captured_msg.size()); ++i) {
+        mvprintw(r, c+1, "| %d", captured_msg[i].num);
+        mvprintw(r, c+11, "| %s", captured_msg[i].timestamp.c_str());
+        mvprintw(r, c+31, "| %s", captured_msg[i].src.c_str());
+        mvprintw(r, c+61, "| %s", captured_msg[i].dst.c_str());
+        mvprintw(r, c+91, "| %s", captured_msg[i].protocol.c_str());
+        mvprintw(r, c+101, "| %d", captured_msg[i].len);
+        mvprintw(r, c+111, "| %s", captured_msg[i].info.c_str());
+        r++;
+        for (int j = 1; j < w; ++j) {
+            mvprintw(r, c+j, "-");
+        }
+        r ++;
+    }
+}
+void do_print_packets(){
+    int w = 150, h = 23;
+    int r = 2, c = 5;
+    int scroll_w = 2;
+    do_print_banner(r, c, w, h);
+//    do_print_scroll(w - scroll_w - 1, c, scroll_w, h, cur_page, tot_page);
+    // 打印右下角的packet数量
+    int cur_packet_num = 0;
+    int tot_packet_num = 144;
+    int num_off = 20;
+    mvprintw(r+h, w - num_off, "%d / %d", cur_packet_num, tot_packet_num);
+    //打印表头信息
+    mvprintw(r, c+1, "| No.");
+    mvprintw(r, c+11, "| Timestamp");
+    mvprintw(r, c+31, "| src");
+    mvprintw(r, c+61, "| dst");
+    mvprintw(r, c+91, "| protocol");
+    mvprintw(r, c+101, "| len");
+    mvprintw(r, c+111, "| info");
+    // 打印packet的普通信息，一个packet一行，一页共20行，可以放下
+//    do_print_captured_msg();
+}
+//void do_print_one_packet(int msg_idx){
+//    int tmp = 0;
+//    for (int i = 0; i < ; ++i) {
+//        wprintf(r,c, "%s", msg_items[msg_idx][cur_selected_item_idxs[i]].c_str());
+//        for (int j = 0; j < ; ++j) {
+//            wprintf(r,c, "-");
+//        }
+//    }
+//}
+void process_one_packet_idx(int msg_idx){
+    process_detailed_one_packet(msg_idx);
+    vector<int> idxs = msg_stack_idxs[msg_idx];
+    if (packet_detail_status == 0){
+        for (int & idx : idxs) {
+            cur_selected_item_idxs.emplace_back(idx);
+        }
+    }else{
+        int tmp = packet_detail_status;
+        int i = 1, prev = 0;
+        while (tmp){
+            if (tmp & 1){
+                for (int j = prev; j < idxs[i]; ++j) {
+                    cur_selected_item_idxs.emplace_back(j);
+                }
+            }
+            prev = idxs[i];
+            i++;
+            tmp /= 2;
+        }
+    }
+}
+void process_ip(vector<string>&v, const display_ip& displayIp){
+    v.emplace_back("Internet Protocol Version 4");
+    v.emplace_back("Total Length: "+to_string(displayIp.tot_len));
+    v.emplace_back("Identification: "+displayIp.ident);
+    v.emplace_back("Flags: "+displayIp.flags);
+    v.emplace_back("TTL: "+to_string(displayIp.ttl));
+    v.emplace_back("Protocol: "+displayIp.protocol);
+    v.emplace_back("Header checksum: "+displayIp.checksum);
+    v.emplace_back("Source Address: "+displayIp.src_ip);
+    v.emplace_back("Destination Address: "+displayIp.dst_ip);
+}
+void process_tcp(vector<string>&v, const display_tcp& displayTcp){
+    v.emplace_back("Transmission Control Protocol");
+    v.emplace_back("Source Port: "+to_string(displayTcp.src_port));
+    v.emplace_back("Destination Port: "+to_string(displayTcp.dst_port));
+    v.emplace_back("Sequence Number: "+to_string(displayTcp.seq));
+    v.emplace_back("Acknowledge Number: "+to_string(displayTcp.ack));
+    v.emplace_back("Flags: "+displayTcp.flags);
+    v.emplace_back("Window: "+to_string(displayTcp.window_size));
+    v.emplace_back("Checksum: "+displayTcp.checksum);
+    v.emplace_back("Urgent Pointer: "+to_string(displayTcp.urgent_pointer));
+}
+void process_udp(vector<string>&v, const display_udp& displayUdp){
+    v.emplace_back("User Datagram Protocol");
+    v.emplace_back("Source Port: "+to_string(displayUdp.src_port));
+    v.emplace_back("Destination Port: "+to_string(displayUdp.dst_port));
+    v.emplace_back("Length: "+to_string(displayUdp.len));
+    v.emplace_back("Checksum: "+displayUdp.checksum);
+}
+void process_icmp(vector<string>&v, const display_icmp& displayIcmp){
+    v.emplace_back("Internet Control Message Protocol");
+    v.emplace_back("Type: "+displayIcmp.type);
+    v.emplace_back("Code: "+displayIcmp.code);
+    v.emplace_back("Checksum: "+displayIcmp.checksum);
+    v.emplace_back("Sequence Number: "+displayIcmp.seq);
+}
+void process_icmp6(vector<string>&v, const display_icmp6& displayIcmp6){
+    v.emplace_back("Internet Control Message Protocol v6");
+    v.emplace_back("Type: "+displayIcmp6.type);
+    v.emplace_back("Code: "+displayIcmp6.code);
+    v.emplace_back("Checksum: "+displayIcmp6.checksum);
+}
+void process_arp(vector<string>&v, const display_arp& displayArp){
+    v.emplace_back("Hardware type: "+displayArp.hardware_type);
+    v.emplace_back("Protocol type: "+displayArp.protocol_type);
+    v.emplace_back("Hardware size: "+to_string(displayArp.hardware_size));
+    v.emplace_back("Protocol size: "+to_string(displayArp.protocol_size));
+    v.emplace_back("Opcode: "+displayArp.opcode);
+    v.emplace_back("Sender MAC: "+displayArp.sender_mac);
+    v.emplace_back("Sender IP: "+displayArp.sender_ip);
+    v.emplace_back("Target MAC: "+displayArp.target_mac);
+    v.emplace_back("Target IP: "+displayArp.target_ip);
+}
+void process_ip6(vector<string>&v, const display_ipv6& displayIpv6){
+    v.emplace_back("Internet Protocol Version 6");
+    v.emplace_back("Payload Len: "+ to_string(displayIpv6.payload_len));
+    v.emplace_back("Next Header: "+displayIpv6.nxt_header_protocol);
+    v.emplace_back("Hop Limit: "+ to_string(displayIpv6.hop_limit));
+    v.emplace_back("Source Address: "+displayIpv6.src_ip);
+    v.emplace_back("Destination Address: "+displayIpv6.dst_ip);
+}
+void process_detailed_one_packet(int msg_idx){
+    Msg cur_m = captured_msg[msg_idx];
+    display_ether e = ethers[cur_m.ether_idx];
+    vector<string> items;
+    vector<int> sk_idx;
+    if (msg_items.find(msg_idx) == msg_items.end()){
+        //ether->展开的话，ether+信息 = 4
+        // ip -> 展开的话，ip+信息=13
+        // arp -> 10
+        // ip6 -> 7
+        // tcp -> 10
+        // udp -> 5
+        // icmp -> 6
+        // icmp6 -> 3
+        // dns -> 4
+        // tls -> 3
+        // dtls -> 2
+        // stun -> 2
+        // 暂存入msg_items里面，以后方便读
+        sk_idx.emplace_back(0);
+        items.emplace_back("Ethernet");
+        items.emplace_back("Source: " + e.src_mac);
+        items.emplace_back("Destination: " + e.dst_mac);
+        items.emplace_back("Type: " + e.type);
+        sk_idx.emplace_back(items.size());
+        if (cur_m.protocol == "HTTP"){
+            process_ip(items, ips[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            process_tcp(items, tcps[ips[e.nxt_idx].nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            items.emplace_back("HTTP");
+        }else if (cur_m.protocol == "TCP"){
+            process_ip(items, ips[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            process_tcp(items, tcps[ips[e.nxt_idx].nxt_idx]);
+        }else if (cur_m.protocol == "TLS"){
+            process_ip(items, ips[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            process_tcp(items, tcps[ips[e.nxt_idx].nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            items.emplace_back("Transport Layer Security");
+            items.emplace_back("Content Type: "+tlss[tcps[ips[e.nxt_idx].nxt_idx].nxt_type].type);
+            items.emplace_back("Version: "+tlss[tcps[ips[e.nxt_idx].nxt_idx].nxt_type].version);
+        }else if (cur_m.protocol == "DNS"){
+            process_ip(items, ips[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            process_udp(items, udps[ips[e.nxt_idx].nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            items.emplace_back("Domain Name System");
+            items.emplace_back("Transaction ID: "+dnss[tcps[ips[e.nxt_idx].nxt_idx].nxt_type].transaction_id);
+            items.emplace_back("Flags: "+dnss[tcps[ips[e.nxt_idx].nxt_idx].nxt_type].flags);
+        }else if (cur_m.protocol == "DHCP"){
+            process_ip(items, ips[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            process_udp(items, udps[ips[e.nxt_idx].nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            items.emplace_back("DHCP");
+        }else if (cur_m.protocol == "SSDP"){
+            process_ip(items, ips[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            process_udp(items, udps[ips[e.nxt_idx].nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            items.emplace_back("SSDP");
+        }else if (cur_m.protocol == "DTLS v1.2"){
+            process_ip(items, ips[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            process_udp(items, udps[ips[e.nxt_idx].nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            items.emplace_back("DTLS v1.2");
+            items.emplace_back("Type: "+dtlss[tcps[ips[e.nxt_idx].nxt_idx].nxt_type].type);
+        }else if (cur_m.protocol == "STUN"){
+            process_ip(items, ips[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            process_udp(items, udps[ips[e.nxt_idx].nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            items.emplace_back("STUN");
+            items.emplace_back("Type: "+stuns[tcps[ips[e.nxt_idx].nxt_idx].nxt_type].type);
+        }else if (cur_m.protocol == "QUIC"){
+            process_ip(items, ips[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            process_udp(items, udps[ips[e.nxt_idx].nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            items.emplace_back("QUIC");
+        }else if (cur_m.protocol == "UDP"){
+            process_ip(items, ips[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            process_udp(items, udps[ips[e.nxt_idx].nxt_idx]);
+        }else if (cur_m.protocol == "ICMP"){
+            process_ip(items, ips[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            process_icmp(items, icmps[ips[e.nxt_idx].nxt_idx]);
+        }else if (cur_m.protocol == "ARP"){
+            items.emplace_back("Address Resolution Protocol");
+            process_arp(items, arps[e.nxt_idx]);
+        }else if (cur_m.protocol == "RARP"){
+            items.emplace_back("Reversed Address Resolution Protocol");
+            process_arp(items, rarps[e.nxt_idx]);
+        }else if (cur_m.protocol == "ICMPv6"){
+            process_ip6(items, ip6s[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
+            process_icmp6(items, icmp6s[ips[e.nxt_idx].nxt_idx]);
+        }else if (cur_m.protocol == "IPv6"){
+            process_ip6(items, ip6s[e.nxt_idx]);
+        }else if(cur_m.protocol == "NIP"){
+            // TODO
+        }
+        msg_items[msg_idx] = items;
+        msg_stack_idxs[msg_idx] = sk_idx;
+    }
+}
+void do_print_traffic_info(){
+
+}
+void do_print_packet_details(){
+//    do_print_one_packet(selected_msg_idx);
+}
 void do_print_side(){
     // 打印四角
     attron(COLOR_PAIR(4));
@@ -429,6 +779,21 @@ void do_print_banner(int row, int col, int w, int h){
         mvprintw(row+i, col, "|");
         mvprintw(row+i, col+w, "|");
     }
+}
+void do_print_scroll(int row, int col, int w, int h, int cur_page, int tot_page){
+    // w是scroll的宽度，scroll所在的当前行和长度是根据h/cur_page/tot_page决定的
+    int scroll_h = h/tot_page;
+    int scroll_row = scroll_h*cur_page;
+    for (int i = 0; i < h; ++i) {
+        mvprintw(row+i, col, "|");
+    }
+    attron(COLOR_PAIR(8) | A_BOLD);
+    for (int j = 0; j < w; ++j) {
+        for (int i = 0; i < scroll_h; ++i) {
+            mvprintw(scroll_row+i, col+1, "|");
+        }
+    }
+    attroff(COLOR_PAIR(8) | A_BOLD);
 }
 void do_print_error_size(){
     clear();
