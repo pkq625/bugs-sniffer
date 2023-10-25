@@ -15,14 +15,18 @@
 
 using namespace std;
 extern unordered_map<string, int> packetCounts;
+extern unordered_map<string, unsigned int> traffics;
 extern pthread_mutex_t packetCountMutex;
+extern pthread_mutex_t trafficCountMutex;
+extern pthread_mutex_t packetProcessMutex;
 extern vector<const char*> interfaces;
 extern atomic<bool> isRunning;
+extern atomic<bool> isRunning2;
 extern pthread_mutex_t mutex;
 extern ofstream debug_fileout;
 extern pthread_cond_t cond;
 extern unordered_map<const char*, pcap_t*>get_statistic_handles;
-
+extern bool is_paused;
 #define IP_HL(ip)       (((ip)->ip_vhl) & 0x0f) /*拿到header len*/
 #define IP_V(ip)        (((ip)->ip_vhl) >> 4)   /*拿到ip version*/
 #define OPTIONS_LENGTH 2
@@ -179,6 +183,5 @@ extern vector<display_dtls>dtlss;
 extern vector<display_dns>dnss;
 extern vector<display_stun>stuns;
 extern set<string> DCID, SCID;
-extern pcap_dumper_t *pcap_dumper;
 
 #endif //UNTITLED_GLOBALVARS_H

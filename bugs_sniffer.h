@@ -121,6 +121,16 @@ struct dev_info{
     char* filter_exp;
     pcap_dumper_t *pcap_dumper;
 };
+struct traffic_s{
+    const char *dev_name;
+    string mac_addr;
+    string info;
+};
+struct cur_dev{
+    const char *dev_name;
+    string filter;
+    string filepath;
+};
 //struct ip_info{
 //    char* src_ip;
 //    char* src_dst;
@@ -195,6 +205,9 @@ void packet_saver(unsigned char* args, const struct pcap_pkthdr *packetHeader, c
 void packet_reader(unsigned char*args, const struct pcap_pkthdr *packetHeader, const unsigned char*packetContent);
 void packet_counter_callback(const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent, const string& interface);
 void* capture_thread(void* dev);
+void* capture_packets_thread(void* dev);
+void* cal_traffic_thread(void* traffic);
+void* packet_save_thread(void*args);
 // some time function
 // for convert to human readable
 string check_arp_hardware_type(uint16_t t);
@@ -214,4 +227,6 @@ string unsignedCharToHexString(unsigned char ch);
 string unsigned_short_to_hex_string(unsigned short int a);
 void packet_counter_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
 void packet_processor_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent);
+string get_mac_addr(const char* dev_name);
+
 #endif //UNTITLED_BUGS_SNIFFER_H

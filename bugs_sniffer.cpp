@@ -229,6 +229,8 @@ void analyze_ether_packet(unsigned char* args, const struct pcap_pkthdr* packetH
 //        cout<<unsignedCharToHexString(packetContent[i])<<" ";
 //    }
 //    cout<<endl;
+    pthread_mutex_lock(&packetProcessMutex);
+
     struct ether_header* etherHeader = (struct ether_header*)packetContent;
     ether_type = check_ethernet_type(etherHeader);
     string srcmac, dstmax;
@@ -262,6 +264,8 @@ void analyze_ether_packet(unsigned char* args, const struct pcap_pkthdr* packetH
         analyze_others_packet(args, packetHeader, packetContent, ether_type);
     }
     ethers.emplace_back(displayEther);
+
+    pthread_mutex_unlock(&packetProcessMutex);
 }
 // throw the ip packet here...
 string check_ip_protocol(uint8_t t){
@@ -976,6 +980,20 @@ void packet_counter_callback(const struct pcap_pkthdr* pkthdr, const unsigned ch
     packetCounts[interface]++;
     pthread_mutex_unlock(&packetCountMutex);
 }
+void* capture_packets_thread(void* dev){
+    cur_dev* curDev = (cur_dev*)dev;
+    char errbuf[PCAP_ERRBUF_SIZE];
+    pcap_t* handle;
+    // Open the capture device
+    handle = pcap_open_live(curDev->dev_name, BUFSIZ, 1, 1000, errbuf);
+    struct bpf_program fp{};
+    pcap_compile(handle, &fp, curDev->filter.c_str(), 0, PCAP_NETMASK_UNKNOWN);
+    pcap_setfilter(handle, &fp);
+    pcap_loop(handle, 0, analyze_ether_packet, nullptr);
+    pcap_close(handle);
+    cout<<curDev->dev_name <<": quited..."<<endl;
+    return nullptr;
+}
 // this is for counting for each interface, when a packet is captured, this will call packet_counter_callback
 void* capture_thread(void* dev){
     char* device = (char*)dev;
@@ -1004,6 +1022,32 @@ void* capture_thread(void* dev){
     cout<<device <<": quited..."<<endl;
     return nullptr;
 }
+void packet_counter_traffic_callback(const struct pcap_pkthdr* pkthdr, const unsigned char* packet,
+        const string& up_or_down) {
+    if (!isRunning)return;
+    pthread_mutex_lock(&trafficCountMutex);
+    traffics[up_or_down]+=pkthdr->len;
+    pthread_mutex_unlock(&trafficCountMutex);
+}
+void* cal_traffic_thread(void* traffic){
+    struct traffic_s* trafficInfo = (struct traffic_s*)traffic;
+    char errbuf[PCAP_ERRBUF_SIZE];
+    pcap_t* handle;
+
+    // Open the capture device
+    handle = pcap_open_live(trafficInfo->dev_name, BUFSIZ, 1, 1000, errbuf);
+    char filter[200];
+    sprintf(filter, "ether src %s", trafficInfo->mac_addr.c_str());
+    struct bpf_program fp{};
+    while (isRunning){
+        struct pcap_pkthdr header{};
+        const u_char* packet = pcap_next(handle, &header);
+
+        if (packet != nullptr) {
+            packet_counter_traffic_callback(&header, packet, trafficInfo->info);
+        }
+    }
+}
 void packet_processor_callback(unsigned char* args, const struct pcap_pkthdr* packetHeader, const unsigned char* packetContent){
     // process the packet in layers
     int* id = (int*) args;
@@ -1024,6 +1068,21 @@ void packet_saver(unsigned char* args, const struct pcap_pkthdr *packetHeader, c
     pcap_dumper_t *dumper = (pcap_dumper_t *)args;
     // Save the packet to the pcap file
     pcap_dump((u_char *)dumper, packetHeader, packetContent);
+}
+void* packet_save_thread(void*args){
+    cur_dev* curDev = (cur_dev*)args;
+    char errbuf[PCAP_ERRBUF_SIZE];
+    pcap_t* handle;
+    // Open the capture device
+    handle = pcap_open_live(curDev->dev_name, BUFSIZ, 1, 1000, errbuf);
+    struct bpf_program fp{};
+    pcap_compile(handle, &fp, curDev->filter.c_str(), 0, PCAP_NETMASK_UNKNOWN);
+    pcap_setfilter(handle, &fp);
+    pcap_dumper_t *pcap_dumper = open_pcap_dumper(handle, curDev->filepath.c_str());
+    pcap_loop(handle, 0, packet_saver, (u_char*)pcap_dumper);
+    pcap_close(handle);
+    cout<<curDev->dev_name <<": quited..."<<endl;
+    return nullptr;
 }
 pcap_dumper_t * open_pcap_dumper(pcap_t* handle, const char *filepath){
     pcap_dumper_t *dumper = pcap_dump_open(handle, filepath);
@@ -1194,4 +1253,20 @@ void track_process_ports_based(int pid, char* dev_name){
 }
 void track_process_bpf_based(int pid){
     //TODO
+}
+string get_mac_addr(const char* dev_name) {
+    // Open a packet capture session
+    pcap_t *handle = pcap_open_live(dev_name, BUFSIZ, 1, 1000, ERROR_BUFFER);
+    if (handle == nullptr) {
+        return "";
+    }
+    // Get the hardware (MAC) address of the network interface
+    char mac[50];
+    struct pcap_stat stats{};
+    if (pcap_stats(handle, &stats) == 0) {
+        sprintf(mac, "%02X:%02X:%02X:%02X:%02X:%02X",
+                dev_name[0], dev_name[1], dev_name[2], dev_name[3], dev_name[4], dev_name[5]);
+    }
+    pcap_close(handle);
+    return mac;
 }

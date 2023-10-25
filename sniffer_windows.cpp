@@ -4,6 +4,28 @@
 #include "globalvars.h"
 #include "sniffer_windows.h"
 // 初始化界面：是否使用颜色、颜色对、不回显等设置
+pthread_t mainThread; // to draw the frontend in the terminal...
+
+pthread_t countThread; // 计算每秒的每个设备的包的个数
+pthread_t captureThreads[20]; // 这个thread纯统计，然后count thread才是计算的
+
+pthread_t captureTrafficThreads[2]; // upload, download，纯统计的
+pthread_t countTrafficThread; // upload, download，纯计算的
+pthread_t capturePacketsThread; // 抓指定设备的包
+pthread_t savePacketsThread; // 暂存这个，如果输入了save，那就把文件丢到制定地址，如果到结束前也没有save，那丢掉这个暂存的文件
+pthread_t processPacketsMsgThread; // 用来把raw的包转为人类可读的
+bool check_expression(){
+    if (!used_expression.empty()){
+        unsigned long tmp = used_expression.find("load");
+        if (tmp != string::npos){
+            // load the file, maybe it would be better to check the inputs...
+            //load_traffic(used_expression.substr(tmp, used_expression.size()).c_str());
+
+        }else{
+            // it is filter!!! do check things...
+        }
+    }
+}
 void * sniffer_thread(void *pVoid){
     int c;
     init_window();
@@ -25,11 +47,74 @@ void * sniffer_thread(void *pVoid){
                 // 输入属于给定的范围内
                 expression += (char)c;
             }else if (c == KEY_RIGHT){
+                used_expression = expression;
                 expression = "";
                 current_cmd = "";
-                // TODO: call the function
             }else if (c == KEY_LEFT){
                 expression = "";
+                current_cmd = "";
+            }
+        }else if (current_cmd == "get packet details"){
+            if (c == KEY_LEFT){
+                // 收缩这一项
+                int tmp = find_number_in_vector(msg_stack_idxs[selected_msg_idx], selected_detail_idx);
+                if (tmp != -1){
+                    packet_detail_status &= ~(1<<cur_selected_item_idxs[tmp]);
+                }
+            }else if (c == KEY_RIGHT){
+                // 展开这一项
+                int tmp = find_number_in_vector(msg_stack_idxs[selected_msg_idx], selected_detail_idx);
+                if (tmp != -1){
+                    packet_detail_status |= (1<<cur_selected_item_idxs[tmp]);
+                }
+            }
+        }else if(current_cmd == "choose dev" && current_page == 1){
+            if (c == KEY_RIGHT){
+                // goto the detail page, start all the thread related to this page (traffic calculating, packet transfer to human-readable)
+                // and stop all the thread in the first page...
+                // or you can just let them running in the back, it's not a big problem
+                // there are two ways: pause these threads used in first page,
+                // another way is to just stop them all (and restart them, after user push q to back to the first page again?)
+                // but, for simplicity, I just close all of them and there is no restart for them!!!! :D
+                // which means, the user would have to restart this whole program (sudo ./bugs_sniffer) <- the root priv matters
+                // and choose a new one. pretty 'cool', right? +v_
+                // because the main purpose is just to get (me) familier with the usage of libpcap and other staffs, such as multi-thread\process\coroutine ^w^
+                if (!behere){
+                    behere = true;
+                    isRunning = false;
+                    isRunning2 = true;
+                    string dvn = menu[selected_dev_name]->dev_name;
+                    string mac = get_mac_addr(dvn.c_str());
+                    check_expression();
+                    struct traffic_s t1 = {dvn.c_str(), mac, "download"};
+                    struct traffic_s t2 = {dvn.c_str(), mac, "upload"};
+                    pthread_create(&captureTrafficThreads[0], nullptr, cal_traffic_thread, (void*)&t1);
+                    pthread_create(&captureTrafficThreads[1], nullptr, cal_traffic_thread, (void*)&t2);
+                    pthread_create(&countTrafficThread, nullptr, (void* (*)(void*))update_traffic_count_per_sec, nullptr);
+                    cur_dev curDev = {dvn.c_str(), used_expression, "./tmp.pcap"};
+                    pthread_create(&savePacketsThread, nullptr, packet_save_thread, (void*)&curDev);
+                    pthread_create(&capturePacketsThread, nullptr, capture_packets_thread, (void*)&curDev);
+                    pthread_create(&processPacketsMsgThread, nullptr, (void* (*)(void*))update_msg_thread, nullptr);
+                }
+            }
+        }else if (current_cmd == "save traffic" && current_page == 2){
+            if (c == KEY_RIGHT){
+                // save it!
+                save_file("./tmp.pcap", destfile.c_str());
+                destfile = "";
+                current_cmd = "";
+            }else{
+                destfile += to_string(c);
+            }
+        }else if(current_cmd == "input expression" && current_page == 1){
+            if (c == KEY_RIGHT) {
+                unsigned long tmp = used_expression.find("load");
+                if (tmp != string::npos) {
+                    if (load_traffic(used_expression.substr(tmp, used_expression.size()).c_str())) {
+                        process_msg(0, ethers.size());
+                        current_page = 2; // goto the next page}
+                    }
+                }
                 current_cmd = "";
             }
         }
@@ -50,8 +135,11 @@ void * sniffer_thread(void *pVoid){
                         quited = true;
                     }
                     else if (current_page == 2) {
+                        isRunning2 = false;
+                        isRunning = false;
+                        is_paused = false;
+                        quited = true;// maybe I will change it in the future...
                         current_page = 1;
-                        quited = true;
                         prev_page = 2;
                     }
                 }
@@ -61,8 +149,9 @@ void * sniffer_thread(void *pVoid){
                     current_cmd = "input filter";
                 break;
             case 's':
-                if (current_cmd.empty())
+                if (current_cmd.empty()) {
                     current_cmd = "save traffic";
+                }
                 break;
             case 'i':
                 if (current_cmd.empty()) {
@@ -75,10 +164,14 @@ void * sniffer_thread(void *pVoid){
                 if (current_cmd.empty()) {
                     if (current_page == 2) {
                         current_cmd = "get packet details";
+
                     } else if (current_page == 1) {
                         current_cmd = "choose dev";
                         selected_row = dev_name_lidx;
                     }
+                } else if (current_cmd == "get packet details" && current_page == 2){
+                    current_cmd = "";
+                    packet_detail_status = 0;
                 }
                 break;
             case 'm':
@@ -107,7 +200,7 @@ void * sniffer_thread(void *pVoid){
         switch (c) {
             case KEY_UP:
                 if (current_cmd == "change mode" ||
-                    current_cmd == "choose dev" || current_cmd == "get packet details") {
+                    current_cmd == "choose dev") {
                     selected_row--;
                     if (current_cmd == "choose dev") {
                         if (selected_dev_name <= dev_name_lidx) {
@@ -115,19 +208,47 @@ void * sniffer_thread(void *pVoid){
                                 dev_name_ridx--;
                                 dev_name_lidx--;
                             } else {
+                                // 跳到最后一页
                                 dev_name_lidx = tot_items - STARTUP_MAX_DEV_INFO;
                                 dev_name_ridx = tot_items - 1;
                             }
                         }
                     }
                 } else if (current_cmd.empty()){
-                    current_cmd = "choose dev";
-                    selected_row = dev_name_ridx;
+                    if (current_page == 1) {
+                        current_cmd = "choose dev";
+                        selected_row = dev_name_ridx;
+                    }else if(current_page == 2){
+                        selected_msg_row_idx --;
+                        // 不用担心小于0的情况，因为这个不是控制显示的，selected_msg_idx才是，不过selected_msg_idx是根据这个更新的
+                        if (selected_msg_idx <= packets_lidx){
+                            if (packets_lidx > 0){
+                                packets_lidx -- ;
+                                packets_ridx -- ;
+                            }else{
+                                // 跳到最后一页
+                                packets_lidx = tot_packets - MAX_PACKETS_ITEM;
+                                packets_ridx = tot_packets - 1;
+                            }
+                        }
+                    }
+                } else if(current_cmd == "get packet details" && current_page == 2){
+                    selected_detail_row_idx -- ;
+                    if (selected_detail_idx <= packet_detail_lidx){
+                        if (packet_detail_lidx > 0){
+                            packet_detail_lidx -- ;
+                            packet_detail_ridx -- ;
+                        }else{
+                            // 跳到最后一页
+                            packet_detail_lidx = tot_details - MAX_PACKET_DETAIL_ITEM;
+                            packet_detail_ridx = tot_details - 1;
+                        }
+                    }
                 }
                 break;
             case KEY_DOWN:
                 if (current_cmd == "change mode" ||
-                    current_cmd == "choose dev" || current_cmd == "get packet details") {
+                    current_cmd == "choose dev") {
                     selected_row++;
                     if (current_cmd == "choose dev") {
                         if (selected_dev_name >= dev_name_ridx) {
@@ -141,8 +262,34 @@ void * sniffer_thread(void *pVoid){
                         }
                     }
                 } else if (current_cmd.empty()){
-                    current_cmd = "choose dev";
-                    selected_row = dev_name_lidx;
+                    if (current_page == 1){
+                        current_cmd = "choose dev";
+                        selected_row = dev_name_lidx;
+                    }else if(current_page == 2){
+                        selected_msg_row_idx ++;
+                        if (selected_msg_idx >= packets_ridx){
+                            if (packets_ridx < tot_items - 1){
+                                packets_lidx ++ ;
+                                packets_ridx ++ ;
+                            }else{
+                                // 跳到第一页
+                                packets_lidx = 0;
+                                packets_ridx = MAX_PACKETS_ITEM - 1;
+                            }
+                        }
+                    }
+                }else if (current_cmd == "get packet details" && current_page == 2){
+                    selected_detail_row_idx ++ ;
+                    if (selected_detail_idx >= packet_detail_ridx){
+                        if (packet_detail_ridx < tot_details - 1){
+                            packet_detail_lidx ++ ;
+                            packet_detail_ridx ++ ;
+                        }else{
+                            // 跳到第一页
+                            packet_detail_lidx = 0;
+                            packet_detail_ridx = MAX_PACKET_DETAIL_ITEM - 1;
+                        }
+                    }
                 }
                 break;
             case KEY_BACKSPACE:
@@ -151,13 +298,19 @@ void * sniffer_thread(void *pVoid){
         }
     }
     endwin();
+
+    pthread_join(processPacketsMsgThread, nullptr);
+    pthread_join(savePacketsThread, nullptr);
+    pthread_join(capturePacketsThread, nullptr);
+    pthread_join(countTrafficThread, nullptr);
+    pthread_join(captureTrafficThreads[0], nullptr);
+    pthread_join(captureTrafficThreads[1], nullptr);
     return nullptr;
 }
 void signalHandler(int signo) {
     if (signo == SIGINT) {
         printf("Received SIGINT, stopping the thread.\n");
         isRunning = false;
-        int i = 0;
         for (auto & entry : get_statistic_handles) {
             if (entry.second != nullptr) {
                 cout<<"sending signal to: " << entry.first << endl;
@@ -170,7 +323,6 @@ void signalHandler(int signo) {
         pthread_mutex_unlock(&mutex);
     }
 }
-
 void start_sniffer(){
     get_all_dev_info();
 
@@ -180,9 +332,8 @@ void start_sniffer(){
     sa.sa_flags = 0;
     sigaction(SIGINT, &sa, nullptr);
 
-    pthread_t countThread;
-    pthread_t mainThread;
-    pthread_t captureThreads[interfaces.size()];
+
+
     for (size_t i = 0; i < interfaces.size(); i++) {
         pthread_create(&captureThreads[i], nullptr, capture_thread, (void*)interfaces[i]);
     }
@@ -202,8 +353,16 @@ void init_window(){
     checked_modes = 5; // 2 8
     selected_row = 0;
     current_cmd = "";
+    // 开始页的初始化
     dev_name_lidx = 0; dev_name_ridx = STARTUP_MAX_DEV_INFO - 1;
     selected_dev_name = 0;
+    // 详情页的列表初始化
+    packets_lidx = 0; packets_ridx = MAX_PACKETS_ITEM - 1;
+    selected_msg_idx = 0;
+    // 详情页的选中包初始化
+    packet_detail_lidx = 0; packet_detail_ridx = MAX_PACKET_DETAIL_ITEM - 1;
+    selected_detail_idx = 0;
+    // filter掉一些不合法的字符
     for (int i = 0; i < 10; ++i) {
         legal_char.insert('0'+i);
     }
@@ -356,9 +515,14 @@ void process_msg(int lidx, int ridx){
         captured_msg.emplace_back(cur_m);
     }
 }
-void do_print_captured_msg(int lidx, int ridx, int r, int c, int w){
-    if (min(lidx, ridx) > captured_msg.size()) return;
-    for (int i = lidx; i < min(ridx, (int)captured_msg.size()); ++i) {
+void do_print_captured_msg(int r, int c, int w){
+    reshape_selected_row(selected_msg_row_idx, tot_packets);
+    selected_msg_idx = selected_msg_row_idx;
+
+    for (int i = packets_lidx; i <= packets_ridx; ++i) {
+        if (selected_msg_idx == i)attron(COLOR_PAIR(8));
+        else
+            attron(COLOR_PAIR(4));
         mvprintw(r, c+1, "| %d", captured_msg[i].num);
         mvprintw(r, c+11, "| %s", captured_msg[i].timestamp.c_str());
         mvprintw(r, c+31, "| %s", captured_msg[i].src.c_str());
@@ -377,7 +541,7 @@ void do_print_packets(){
     int w = 150, h = 23;
     int r = 2, c = 5;
     int scroll_w = 2;
-    do_print_banner(r, c, w, h);
+    do_print_banner(r++, c++, w, h);
 //    do_print_scroll(w - scroll_w - 1, c, scroll_w, h, cur_page, tot_page);
     // 打印右下角的packet数量
     int cur_packet_num = 0;
@@ -392,18 +556,9 @@ void do_print_packets(){
     mvprintw(r, c+91, "| protocol");
     mvprintw(r, c+101, "| len");
     mvprintw(r, c+111, "| info");
-    // 打印packet的普通信息，一个packet一行，一页共20行，可以放下
-//    do_print_captured_msg();
+    // 打印packet的普通信息，一个packet一行，一页共20行，可以放下10个？
+    do_print_captured_msg(r+1, c+1, w);
 }
-//void do_print_one_packet(int msg_idx){
-//    int tmp = 0;
-//    for (int i = 0; i < ; ++i) {
-//        wprintf(r,c, "%s", msg_items[msg_idx][cur_selected_item_idxs[i]].c_str());
-//        for (int j = 0; j < ; ++j) {
-//            wprintf(r,c, "-");
-//        }
-//    }
-//}
 void process_one_packet_idx(int msg_idx){
     process_detailed_one_packet(msg_idx);
     vector<int> idxs = msg_stack_idxs[msg_idx];
@@ -486,6 +641,22 @@ void process_ip6(vector<string>&v, const display_ipv6& displayIpv6){
     v.emplace_back("Hop Limit: "+ to_string(displayIpv6.hop_limit));
     v.emplace_back("Source Address: "+displayIpv6.src_ip);
     v.emplace_back("Destination Address: "+displayIpv6.dst_ip);
+}
+void update_msg_thread(void*args){
+    // 把新抓的包仍进来
+    while (isRunning2) {
+        this_thread::sleep_for(chrono::seconds(5));
+        pthread_mutex_lock(&packetProcessMutex);
+        while (is_paused){
+            // TODO
+        }
+        int tmp = ethers.size();
+        if (tot_items < tmp) {
+            process_msg(tot_items, tmp);
+            tot_items = tmp;
+        }
+        pthread_mutex_unlock(&packetProcessMutex);
+    }
 }
 void process_detailed_one_packet(int msg_idx){
     Msg cur_m = captured_msg[msg_idx];
@@ -598,10 +769,33 @@ void process_detailed_one_packet(int msg_idx){
     }
 }
 void do_print_traffic_info(){
-
+    int row = 30, col=5, w=20, h=6;
+    do_print_banner(row++, col++, w, h);
+    mvprintw(row++, col, "dev: %s", curDevInfo.dev_name);
+    if (!curDevInfo.dev_ips.empty())
+        mvprintw(row++, col, "addr: %s", curDevInfo.dev_ips[0].c_str());
+    if (!download_traffic_per_second.empty())
+        mvprintw(row++, col, "Download: %s", download_traffic_per_second.c_str());
+    if (!upload_traffic_per_second.empty())
+        mvprintw(row, col, "Upload: %s", upload_traffic_per_second.c_str());
 }
 void do_print_packet_details(){
-//    do_print_one_packet(selected_msg_idx);
+    int r = 30,c = 45,w = 82,h = 9;
+    do_print_banner(r,c,w,h);
+    tot_details = (int)cur_selected_item_idxs.size();
+    reshape_selected_row(selected_detail_row_idx, tot_details);
+    selected_detail_idx = selected_detail_row_idx;
+    process_one_packet_idx(selected_detail_idx);
+    for (int i = packet_detail_lidx; i <= packet_detail_ridx; ++i) {
+        if (i == selected_detail_idx && current_cmd == "get packet details") attron(COLOR_PAIR(8));
+        else
+            attron(COLOR_PAIR(4));
+        mvprintw(r++,c, "%s", msg_items[selected_msg_idx][cur_selected_item_idxs[i]].c_str());
+        for (int j = 0; j < w; ++j) {
+            mvprintw(r,c+j, "-");
+        }
+        r++;
+    }
 }
 void do_print_side(){
     // 打印四角
@@ -735,6 +929,13 @@ void reshape_selected_row(int m){
         }
         selected_row %=m;
 }
+void reshape_selected_row(int& r, int m){
+        if (r < 0) {
+            r = (-r) % m;
+            r = m - r;
+        }
+        r %=m;
+}
 void do_print_dev_name(){
     if (!dev_interval){
         startup_dev_info_height = STARTUP_DEV_INFO_HEIGHT_OFFSET + get_all_dev_info();
@@ -746,7 +947,8 @@ void do_print_dev_name(){
     attron(COLOR_PAIR(7));
     int row_off = 0, off;
     if (current_cmd == "choose dev"){
-        reshape_selected_row(tot_items);
+        reshape_selected_row(selected_row, tot_items);
+//        reshape_selected_row(tot_items);
         selected_dev_name = selected_row;
     }
     for (int i = dev_name_lidx; i <= dev_name_ridx; ++i) {
@@ -765,6 +967,7 @@ void do_print_dev_name(){
         row_off += 3;
     }
 }
+// 打印一个长方形的哐
 void do_print_banner(int row, int col, int w, int h){
     attron(COLOR_PAIR(4));
     mvprintw(row, col, "┌");
@@ -780,6 +983,7 @@ void do_print_banner(int row, int col, int w, int h){
         mvprintw(row+i, col+w, "|");
     }
 }
+// 打印旁边的滚轮
 void do_print_scroll(int row, int col, int w, int h, int cur_page, int tot_page){
     // w是scroll的宽度，scroll所在的当前行和长度是根据h/cur_page/tot_page决定的
     int scroll_h = h/tot_page;
@@ -795,6 +999,7 @@ void do_print_scroll(int row, int col, int w, int h, int cur_page, int tot_page)
     }
     attroff(COLOR_PAIR(8) | A_BOLD);
 }
+// 当终端大小不是160x40的时候，进入这个页面
 void do_print_error_size(){
     clear();
     attron(COLOR_PAIR(1));
@@ -839,7 +1044,7 @@ int get_all_dev_info(){
     tot_items = i;
     return tmp;
 }
-// 总包
+// 根据每秒包的多少分级
 int packet_num_to_level(int num){
     if (num > 0 && num <= 10)
         return 1;
@@ -851,6 +1056,7 @@ int packet_num_to_level(int num){
         return 0;
     }
 }
+// 打印开始页每个设备每秒的包数
 void do_print_statistics(){
     int row_off = STARTUP_DEV_INFO_ROW+1, col_off, prev = -1, cur;
     for (int i = dev_name_lidx; i < dev_name_ridx; ++i) {
@@ -875,9 +1081,35 @@ void do_print_statistics(){
         row_off += 3;
     }
 }
+// 计算当前设备的每秒的流量
+void update_traffic_count_per_sec() {
+    while (isRunning2) {
+        this_thread::sleep_for(chrono::seconds(5));
+        pthread_mutex_lock(&trafficCountMutex);
+        while (is_paused){
+            // TODO
+        }
+        for (const auto& entry : traffics) {
+            if (entry.first == "download"){
+                if (entry.second <= 1024)
+                    download_traffic_per_second = to_string(entry.second) + "Bytes/s";
+                else if (entry.second <= 1024*1024)
+                    download_traffic_per_second = to_string(entry.second / 1024) + "KB/s";
+            }else if(entry.first == "upload"){
+                if (entry.second <= 1024)
+                    upload_traffic_per_second = to_string(entry.second) + "Bytes/s";
+                else if (entry.second <= 1024*1024)
+                    upload_traffic_per_second = to_string(entry.second / 1024) + "KB/s";
+            }
+        }
+        traffics.clear();
+        pthread_mutex_unlock(&trafficCountMutex);
+    }
+}
+// 计算每个设备每秒的包数量
 void update_packet_count_per_sec() {
     while (isRunning) {
-        debug_fileout << time(nullptr) << ": update"<<endl;
+//        debug_fileout << time(nullptr) << ": update"<<endl;
         this_thread::sleep_for(chrono::seconds(5));
 
         pthread_mutex_lock(&packetCountMutex);
@@ -904,12 +1136,12 @@ void update_packet_count_per_sec() {
         pthread_mutex_unlock(&packetCountMutex);
     }
 }
-//
+// 判断是否是160x40
 bool check_window_size(){
     get_current_size();
     return winParameter->height == WINDOW_HEIGHT && winParameter->width == WINDOW_WIDTH;
 }
-//
+// 当前窗口大小
 void get_current_size(){
     if (winParameter == nullptr){
         winParameter = new win_parameter{getmaxx(stdscr), getmaxy(stdscr)};
@@ -918,8 +1150,8 @@ void get_current_size(){
         winParameter->height = getmaxy(stdscr);
     }
 }
+// 获得当前时间和电池量
 void get_system_info(){
-    // 获得当前时间
     time_t tt;
     time(&tt);
     struct tm* p = localtime(&tt);
@@ -943,4 +1175,31 @@ void get_system_info(){
     }
     if (++battery_interval >= MAX_BATTERY_INTERVAL){
     }
+}
+// 找到一个vector里是否有这个数字，如果有数字的话，返回下标，没有就返回-1
+int find_number_in_vector(const std::vector<int>& numbers, int target) {
+    auto it = std::lower_bound(numbers.begin(), numbers.end(), target);
+    if (it != numbers.end() && *it == target) {
+        int index = std::distance(numbers.begin(), it);
+        return index;
+    }
+
+    return -1; // Return -1 if the number is not found
+}
+void save_file(const char* sourceFilePath, const char* destinationFilePath) {
+    // Just copy...
+    std::ifstream sourceFile(sourceFilePath, ios::binary);
+    if (!sourceFile) {
+        return;
+    }
+
+    std::ofstream destinationFile(destinationFilePath, ios::binary);
+    if (!destinationFile) {
+        return;
+    }
+
+    destinationFile << sourceFile.rdbuf();
+
+    sourceFile.close();
+    destinationFile.close();
 }
