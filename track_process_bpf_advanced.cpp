@@ -1,5 +1,5 @@
 //
-// Created by tery on 2023/10/22.
+// Created by neko on 2023/10/22.
 //
 #include <iostream>
 #include <pcap.h>
@@ -9,12 +9,11 @@
 #include <cstring>
 #include <cerrno>
 
-// Define the PID of the process to monitor
-const int TARGET_PID = YOUR_PROCESS_PID; // Replace with the actual PID
+const int TARGET_PID = PID;
 
 void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char *packet) {
-    struct ip *ip_header = (struct ip *)(packet + 14); // Skip Ethernet header
-    struct tcphdr *tcp_header = (struct tcphdr *)(packet + 14 + ip_header->ip_hl * 4); // Skip IP header
+    struct ip *ip_header = (struct ip *)(packet + 14);
+    struct tcphdr *tcp_header = (struct tcphdr *)(packet + 14 + ip_header->ip_hl * 4);
 
     if (ip_header->ip_p == IPPROTO_TCP && (ip_header->ip_src.s_addr == htonl(TARGET_PID) || ip_header->ip_dst.s_addr == htonl(TARGET_PID))) {
         std::cout << "Source Port: " << ntohs(tcp_header->th_sport) << std::endl;
@@ -23,7 +22,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
 }
 
 int main() {
-    const char *dev = "eth0"; // Replace with your network interface
+    const char *dev = "eth0";
     char errbuf[PCAP_ERRBUF_SIZE];
     pcap_t *handle;
 
@@ -33,7 +32,6 @@ int main() {
         return 1;
     }
 
-    // Create a BPF filter expression to match the specified PID
     char filter_exp[50];
     std::snprintf(filter_exp, sizeof(filter_exp), "ip[12:4] = %d or ip[16:4] = %d", TARGET_PID, TARGET_PID);
 

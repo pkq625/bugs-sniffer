@@ -1,5 +1,5 @@
 //
-// Created by tery on 2023/10/22.
+// Created by neko on 2023/10/22.
 //
 #include <iostream>
 #include <pcap.h>
@@ -10,12 +10,11 @@
 #include <vector>
 
 void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char *packet) {
-    struct ip *ip_header = (struct ip *)(packet + 14); // Skip Ethernet header
-    struct tcphdr *tcp_header = (struct tcphdr *)(packet + 14 + ip_header->ip_hl * 4); // Skip IP header
+    struct ip *ip_header = (struct ip *)(packet + 14);
+    struct tcphdr *tcp_header = (struct tcphdr *)(packet + 14 + ip_header->ip_hl * 4);
 
     if (ip_header->ip_p == IPPROTO_TCP && (tcp_header->th_sport == htons(PROCESS_PORT))) {
-        // Replace PROCESS_PORT with the source port used by the process
-        // You can adjust this condition as needed to capture packets from a specific process.
+
         std::cout << "Source IP: " << inet_ntoa(ip_header->ip_src) << std::endl;
         std::cout << "Destination IP: " << inet_ntoa(ip_header->ip_dst) << std::endl;
         std::cout << "Source Port: " << ntohs(tcp_header->th_sport) << std::endl;
@@ -24,7 +23,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
 }
 
 int main() {
-    const char *dev = "eth0"; // Replace with your network interface
+    const char *dev = "eth0";
     char errbuf[PCAP_ERRBUF_SIZE];
     pcap_t *handle;
 
@@ -34,7 +33,7 @@ int main() {
         return 1;
     }
 
-    std::string filter = "tcp and src port PROCESS_PORT"; // Replace PROCESS_PORT with the process's source port
+    std::string filter = "tcp and src port PROCESS_PORT";
     struct bpf_program fp;
 
     if (pcap_compile(handle, &fp, filter.c_str(), 0, PCAP_NETMASK_UNKNOWN) == -1) {

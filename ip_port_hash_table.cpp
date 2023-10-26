@@ -1,5 +1,5 @@
 //
-// Created by tery on 2023/10/22.
+// Created by neko on 2023/10/22.
 //
 #include <iostream>
 #include <pcap.h>
@@ -14,7 +14,6 @@
 #include <mutex>
 #include <chrono>
 
-// A data structure to track TCP flows
 struct FlowKey {
     in_addr src_ip;
     in_addr dst_ip;
@@ -29,7 +28,6 @@ struct FlowKey {
     }
 };
 
-// Hash function for FlowKey to be used in unordered_map
 struct FlowKeyHash {
     std::size_t operator()(const FlowKey& key) const {
         return std::hash<std::string>()(
@@ -40,8 +38,6 @@ struct FlowKeyHash {
         );
     }
 };
-
-// Structure to hold flow statistics
 struct FlowStats {
     int packets_sent = 0;
     int packets_received = 0;
@@ -53,8 +49,8 @@ std::unordered_map<FlowKey, FlowStats, FlowKeyHash> flow_table;
 std::mutex flow_table_mutex;
 
 void packet_handler(u_char* user, const struct pcap_pkthdr* pkthdr, const u_char* packet) {
-    struct ip* ip_header = (struct ip*)(packet + 14); // Skip Ethernet header
-    struct tcphdr* tcp_header = (struct tcphdr*)(packet + 14 + ip_header->ip_hl * 4); // Skip IP header
+    struct ip* ip_header = (struct ip*)(packet + 14);
+    struct tcphdr* tcp_header = (struct tcphdr*)(packet + 14 + ip_header->ip_hl * 4);
 
     if (ip_header->ip_p == IPPROTO_TCP) {
         FlowKey flow_key;
@@ -63,14 +59,12 @@ void packet_handler(u_char* user, const struct pcap_pkthdr* pkthdr, const u_char
         flow_key.src_port = ntohs(tcp_header->th_sport);
         flow_key.dst_port = ntohs(tcp_header->th_dport);
 
-        // Update flow statistics
         {
             std::lock_guard<std::mutex> lock(flow_table_mutex);
             FlowStats& flow_stats = flow_table[flow_key];
             flow_stats.packets_sent++;
             flow_stats.bytes_sent += pkthdr->len;
 
-            // You can add logic to track received packets if needed
         }
     }
 }
@@ -84,7 +78,6 @@ void print_flow_statistics() {
             const FlowKey& flow_key = entry.first;
             const FlowStats& flow_stats = entry.second;
 
-            // Print statistics
             std::cout << "Flow: " << inet_ntoa(flow_key.src_ip) << ":" << flow_key.src_port << " -> "
                       << inet_ntoa(flow_key.dst_ip) << ":" << flow_key.dst_port << " - "
                       << "Sent Packets: " << flow_stats.packets_sent << " - "
@@ -94,7 +87,7 @@ void print_flow_statistics() {
 }
 
 int main() {
-    const char* dev = "eth0"; // Replace with your network interface
+    const char* dev = "eth0";
     char errbuf[PCAP_ERRBUF_SIZE];
     pcap_t* handle;
 
@@ -104,7 +97,7 @@ int main() {
         return 1;
     }
 
-    std::string filter = "tcp"; // Filter for TCP traffic
+    std::string filter = "tcp";
     struct bpf_program fp;
 
     if (pcap_compile(handle, &fp, filter.c_str(), 0, PCAP_NETMASK_UNKNOWN) == -1) {
@@ -117,7 +110,6 @@ int main() {
         return 1;
     }
 
-    // Start a separate thread to periodically print flow statistics
     std::thread statistics_thread(print_flow_statistics);
 
     pcap_loop(handle, 0, packet_handler, nullptr);

@@ -6,6 +6,11 @@
 #define UNTITLED_BUGS_SNIFFER_H
 #include <pcap.h>
 #include <fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/if.h>
+#include <netinet/ether.h>
+#include <unistd.h>
+#include <netdb.h>
 #include <unistd.h>
 #include <netinet/ether.h>
 #include <netinet/if_ether.h>
@@ -114,6 +119,8 @@ struct udp_header{
 // some usually used variable struct
 struct dev_info{
     char* dev_name;
+    string dvn;
+    string mac;
     char* dev_description;
     pcap_t* dev_handle;
     bpf_u_int32 ipaddress;
@@ -123,7 +130,7 @@ struct dev_info{
 };
 struct traffic_s{
     const char *dev_name;
-    string mac_addr;
+    const char* mac_addr;
     string info;
 };
 struct cur_dev{

@@ -9,6 +9,5 @@ add_executable(untitled main.cpp
         sniffer_windows.h
         bugs_sniffer.cpp
         sniffer_windows.cpp
-        globalvars.cpp
-        process_nfqueue.cpp)
-target_link_libraries(untitled -lpcap -lncursesw -lpthread -lnetfilter_queue)
+        globalvars.cpp)
+target_link_libraries(untitled -lpcap -lncursesw -lpthread)

@@ -1,0 +1,3 @@
+/home/bugs/Documents/bugs-sniffer/cmake-build-debug/CMakeFiles/untitled.dir
+/home/bugs/Documents/bugs-sniffer/cmake-build-debug/CMakeFiles/edit_cache.dir
+/home/bugs/Documents/bugs-sniffer/cmake-build-debug/CMakeFiles/rebuild_cache.dir

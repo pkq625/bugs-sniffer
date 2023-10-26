@@ -27,7 +27,7 @@ static const int MAX_SHOWN_PACKETS = 2000;
 static const int STARTUP_DEV_INFO_ROW = 15;
 static const int STARTUP_DEV_INFO_COL = 20;
 static const int STARTUP_DEV_INFO_WIDTH = 120;
-static const int STARTUP_DEV_INFO_HEIGHT_OFFSET = 2;
+static const int STARTUP_DEV_INFO_HEIGHT_OFFSET = 5;
 static const unsigned int MAX_ALARM_TIME = 5;
 // 详情页信息
 static const int MAX_PACKET_DETAIL_ITEM = 4;
@@ -50,6 +50,7 @@ struct menu_item{
     int num;
     string dev_name;
     vector<string> ips;
+    string mac;
 };
 static unordered_map<string, list<int> > data_per_interface;
 static unordered_map<string, int> interface2idx;
@@ -141,6 +142,7 @@ void do_print_startup_input_bar();
 void do_print_checkbox(); // 打印开始页的设备类型选择
 void do_print_dev_name(); // 打印开始页的设备名称信息
 void do_print_statistics(); // 打印开始页每个设备每秒的包数
+void do_print_cur_filter(); // print the prev inputed filter
 void do_print_details_input_bar();
 void do_print_packets();
 void do_print_packet_details();
@@ -159,6 +161,7 @@ bool check_expression();
 int get_all_dev_info(); // 获取当前机器上的设备信息：name+ip
 void get_all_statistics();
 void do_get_one_item(int i) ;
+void do_print_captured_msg(int r, int c, int w);
 void get_system_info(); // 获得当前时间和电池量
 void get_current_size(); // 当前窗口大小
 void update_packet_count_per_sec(); // 计算每个设备每秒的包数量

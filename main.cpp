@@ -1,14 +1,15 @@
 #include "sniffer_windows.h"
 
 int main() {
-    char errbuf[PCAP_ERRBUF_SIZE];
-    pcap_t* handle;
+    start_sniffer();
+//    char errbuf[PCAP_ERRBUF_SIZE];
+//    pcap_t* handle;
 
-    // Open the capture device
-    handle = pcap_open_live("wlo1", BUFSIZ, 0, 0, errbuf);
-    bpf_u_int32 ipaddress, ipmask; // unsigned int
-    pcap_lookupnet("wlo1", &ipaddress, &ipmask, ERROR_BUFFER);
-    load_traffic("./2.pcap");
+//     Open the capture device
+//    handle = pcap_open_live("wlo1", BUFSIZ, 0, 0, errbuf);
+//    bpf_u_int32 ipaddress, ipmask; // unsigned int
+//    pcap_lookupnet("wlo1", &ipaddress, &ipmask, ERROR_BUFFER);
+//    load_traffic("./2.pcap");
 
 //    pcap_t* pcapOutput = pcap_open_dead(DLT_EN10MB, 65535);
 //    pcap_dumper_t * t = open_pcap_dumper(pcapOutput, "./2.pcap");

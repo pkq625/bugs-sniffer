@@ -25,6 +25,7 @@ bool check_expression(){
             // it is filter!!! do check things...
         }
     }
+    return false;
 }
 void * sniffer_thread(void *pVoid){
     int c;
@@ -50,6 +51,22 @@ void * sniffer_thread(void *pVoid){
                 used_expression = expression;
                 expression = "";
                 current_cmd = "";
+                unsigned long tmp = used_expression.find("load");
+                if (tmp != string::npos){
+                    // load the file
+                    if (load_traffic(used_expression.substr(5, used_expression.size()-5).c_str())){
+                        process_msg(0, ethers.size());
+                        packets_ridx = tot_items - 1;
+                        isRunning = false;
+                        current_page = 2; // goto the next page
+//                        debug_fileout << ethers.size() << endl;
+//                        debug_fileout << captured_msg.size() << endl;
+//                        debug_fileout << "load success"<< endl;
+                    }else{
+                        // TODO: set the error flag and print some error information
+                        debug_fileout << used_expression.substr(tmp+1, used_expression.size()-tmp) << " load fail" << endl;
+                    }
+                }
             }else if (c == KEY_LEFT){
                 expression = "";
                 current_cmd = "";
@@ -57,15 +74,18 @@ void * sniffer_thread(void *pVoid){
         }else if (current_cmd == "get packet details"){
             if (c == KEY_LEFT){
                 // 收缩这一项
-                int tmp = find_number_in_vector(msg_stack_idxs[selected_msg_idx], selected_detail_idx);
-                if (tmp != -1){
-                    packet_detail_status &= ~(1<<cur_selected_item_idxs[tmp]);
-                }
+                packet_detail_status = 0;
+//                int tmp = find_number_in_vector(msg_stack_idxs[selected_msg_idx], selected_detail_idx);
+//                debug_fileout << ".." << tmp << endl;
+//                if (tmp != -1){
+//                    packet_detail_status &= ~(1<<cur_selected_item_idxs[tmp]);
+//                }
             }else if (c == KEY_RIGHT){
                 // 展开这一项
-                int tmp = find_number_in_vector(msg_stack_idxs[selected_msg_idx], selected_detail_idx);
-                if (tmp != -1){
-                    packet_detail_status |= (1<<cur_selected_item_idxs[tmp]);
+//                if (tmp != -1){
+//                    packet_detail_status |= (1<<cur_selected_item_idxs[tmp]);
+                if (packet_detail_status == 0){
+                    packet_detail_status |= (1<<selected_detail_idx);
                 }
             }
         }else if(current_cmd == "choose dev" && current_page == 1){
@@ -80,19 +100,24 @@ void * sniffer_thread(void *pVoid){
                 // and choose a new one. pretty 'cool', right? +v_
                 // because the main purpose is just to get (me) familier with the usage of libpcap and other staffs, such as multi-thread\process\coroutine ^w^
                 if (!behere){
+                    // you should not come here twice...
+                    string dvn = menu[selected_dev_name]->dev_name;
+                    menu[selected_dev_name]->mac = get_mac_addr(dvn.c_str());
+                    check_expression();
+                    curDevInfo.dev_name = menu[selected_dev_name]->dev_name.data();
+                    curDevInfo.dev_ips = menu[selected_dev_name]->ips;
+                    struct traffic_s t1 = {dvn.c_str(), menu[selected_dev_name]->mac.c_str(), "download"};
+                    struct traffic_s t2 = {dvn.c_str(), menu[selected_dev_name]->mac.c_str(), "upload"};
+                    cur_dev curDev = {dvn.c_str(), used_expression, "./tmp.pcap"};
                     behere = true;
                     isRunning = false;
                     isRunning2 = true;
-                    string dvn = menu[selected_dev_name]->dev_name;
-                    string mac = get_mac_addr(dvn.c_str());
-                    check_expression();
-                    struct traffic_s t1 = {dvn.c_str(), mac, "download"};
-                    struct traffic_s t2 = {dvn.c_str(), mac, "upload"};
+                    current_cmd = "";
+                    current_page = 2; // goto the next page
                     pthread_create(&captureTrafficThreads[0], nullptr, cal_traffic_thread, (void*)&t1);
                     pthread_create(&captureTrafficThreads[1], nullptr, cal_traffic_thread, (void*)&t2);
                     pthread_create(&countTrafficThread, nullptr, (void* (*)(void*))update_traffic_count_per_sec, nullptr);
-                    cur_dev curDev = {dvn.c_str(), used_expression, "./tmp.pcap"};
-                    pthread_create(&savePacketsThread, nullptr, packet_save_thread, (void*)&curDev);
+//                    pthread_create(&savePacketsThread, nullptr, packet_save_thread, (void*)&curDev);
                     pthread_create(&capturePacketsThread, nullptr, capture_packets_thread, (void*)&curDev);
                     pthread_create(&processPacketsMsgThread, nullptr, (void* (*)(void*))update_msg_thread, nullptr);
                 }
@@ -105,17 +130,6 @@ void * sniffer_thread(void *pVoid){
                 current_cmd = "";
             }else{
                 destfile += to_string(c);
-            }
-        }else if(current_cmd == "input expression" && current_page == 1){
-            if (c == KEY_RIGHT) {
-                unsigned long tmp = used_expression.find("load");
-                if (tmp != string::npos) {
-                    if (load_traffic(used_expression.substr(tmp, used_expression.size()).c_str())) {
-                        process_msg(0, ethers.size());
-                        current_page = 2; // goto the next page}
-                    }
-                }
-                current_cmd = "";
             }
         }
         switch (char(c)) {
@@ -194,6 +208,8 @@ void * sniffer_thread(void *pVoid){
                             //TODO: goto detail page
                         }
                     }
+                }else if (current_cmd.empty() && current_page == 2){
+                    is_paused = !is_paused;
                 }
                 break;
         }
@@ -227,7 +243,7 @@ void * sniffer_thread(void *pVoid){
                                 packets_ridx -- ;
                             }else{
                                 // 跳到最后一页
-                                packets_lidx = tot_packets - MAX_PACKETS_ITEM;
+                                packets_lidx = max(0, tot_packets - MAX_PACKETS_ITEM);
                                 packets_ridx = tot_packets - 1;
                             }
                         }
@@ -240,7 +256,7 @@ void * sniffer_thread(void *pVoid){
                             packet_detail_ridx -- ;
                         }else{
                             // 跳到最后一页
-                            packet_detail_lidx = tot_details - MAX_PACKET_DETAIL_ITEM;
+                            packet_detail_lidx = max(0, tot_details - MAX_PACKET_DETAIL_ITEM);
                             packet_detail_ridx = tot_details - 1;
                         }
                     }
@@ -268,13 +284,13 @@ void * sniffer_thread(void *pVoid){
                     }else if(current_page == 2){
                         selected_msg_row_idx ++;
                         if (selected_msg_idx >= packets_ridx){
-                            if (packets_ridx < tot_items - 1){
+                            if (packets_ridx < tot_packets - 1){
                                 packets_lidx ++ ;
                                 packets_ridx ++ ;
                             }else{
                                 // 跳到第一页
                                 packets_lidx = 0;
-                                packets_ridx = MAX_PACKETS_ITEM - 1;
+                                packets_ridx = min(tot_packets, MAX_PACKETS_ITEM) - 1;
                             }
                         }
                     }
@@ -287,7 +303,7 @@ void * sniffer_thread(void *pVoid){
                         }else{
                             // 跳到第一页
                             packet_detail_lidx = 0;
-                            packet_detail_ridx = MAX_PACKET_DETAIL_ITEM - 1;
+                            packet_detail_ridx = min(tot_details, MAX_PACKET_DETAIL_ITEM) - 1;
                         }
                     }
                 }
@@ -309,11 +325,11 @@ void * sniffer_thread(void *pVoid){
 }
 void signalHandler(int signo) {
     if (signo == SIGINT) {
-        printf("Received SIGINT, stopping the thread.\n");
+//        printf("Received SIGINT, stopping the thread.\n");
         isRunning = false;
         for (auto & entry : get_statistic_handles) {
             if (entry.second != nullptr) {
-                cout<<"sending signal to: " << entry.first << endl;
+//                cout<<"sending signal to: " << entry.first << endl;
                 pcap_breakloop(entry.second);
             }
         }
@@ -331,8 +347,6 @@ void start_sniffer(){
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
     sigaction(SIGINT, &sa, nullptr);
-
-
 
     for (size_t i = 0; i < interfaces.size(); i++) {
         pthread_create(&captureThreads[i], nullptr, capture_thread, (void*)interfaces[i]);
@@ -389,6 +403,7 @@ void init_window(){
     noecho();
     nodelay(stdscr, true); // 非阻塞输入
     keypad(stdscr, true); // 接收键盘的功能键
+    curs_set(0); // hide the cursor
 }
 // 暂时只支持160x40
 void print_error_size(){
@@ -408,6 +423,7 @@ void print_startup(){
     do_print_checkbox();
     do_print_dev_name();
     do_print_statistics();
+    do_print_cur_filter();
     refresh();
     usleep(500000);
 }
@@ -415,7 +431,7 @@ void print_details(){
     current_page = 2;
     clear();
     do_print_side();
-    do_print_details_input_bar();
+//    do_print_details_input_bar();
     do_print_packets();
     do_print_traffic_info();
     do_print_packet_details();
@@ -423,6 +439,11 @@ void print_details(){
     usleep(500000);
 }
 // 真正做事情的printer们
+void do_print_cur_filter(){
+    if (!used_expression.empty()){
+        mvprintw(38, 3, "Expression: %s", used_expression.c_str());
+    }
+}
 void do_print_details_input_bar(){
     // do save
 }
@@ -435,12 +456,16 @@ void process_msg(int lidx, int ridx){
         if (e.nxt_type & 1){
             // ip
             display_ip tmp = ips[e.nxt_idx];
+            cur_m.src = tmp.src_ip;
+            cur_m.dst = tmp.dst_ip;
             if (tmp.nxt_type & 1){
                 // tcp
-                display_tcp displayTcp = tcps[tmp.nxt_type];
+                display_tcp displayTcp = tcps[tmp.nxt_idx];
                 if (displayTcp.nxt_type & 1){
                     cur_m.protocol = "TLS";
-                    cur_m.info = tlss[displayTcp.nxt_idx].type;
+                    if (tlss[displayTcp.nxt_idx].type.empty()) cur_m.info= "暂无";
+                    else
+                        cur_m.info = tlss[displayTcp.nxt_idx].type;
                 }else if((displayTcp.nxt_type >> 1) & 1){
                     cur_m.protocol = "HTTP";
                     cur_m.info = "暂无";
@@ -450,7 +475,7 @@ void process_msg(int lidx, int ridx){
                 }
             }else if((tmp.nxt_type >> 1) & 1){
                 // udp
-                display_udp displayUdp = udps[tmp.nxt_type];
+                display_udp displayUdp = udps[tmp.nxt_idx];
                 if (displayUdp.nxt_type & 1){
                     cur_m.protocol = "DNS";
                     cur_m.info = dnss[displayUdp.nxt_idx].flags;
@@ -476,21 +501,27 @@ void process_msg(int lidx, int ridx){
             }else if((tmp.nxt_type >> 2) & 1){
                 // icmp
                 cur_m.protocol = "ICMP";
-                cur_m.info = icmps[tmp.nxt_type].type;
+                cur_m.info = icmps[tmp.nxt_idx].type;
             }
         }else if((e.nxt_type >> 1) & 1){
             // arp
             display_arp tmp = arps[e.nxt_idx];
             cur_m.protocol = "ARP";
             cur_m.info = tmp.opcode + " " + tmp.hardware_type + " " + tmp.protocol_type;
+            cur_m.src = tmp.sender_mac;
+            cur_m.dst = tmp.target_mac;
         }else if((e.nxt_type >> 2) & 1){
             // rarp
             display_arp tmp = rarps[e.nxt_idx];
             cur_m.protocol = "RARP";
             cur_m.info = tmp.opcode + " " + tmp.hardware_type + " " + tmp.protocol_type;
+            cur_m.src = tmp.sender_mac;
+            cur_m.dst = tmp.target_mac;
         }else if((e.nxt_type >> 3) & 1){
             // ip6
             display_ipv6 tmp = ip6s[e.nxt_idx];
+            cur_m.src = tmp.src_ip;
+            cur_m.dst = tmp.dst_ip;
             if (tmp.nxt_type == 1){
                 // ICMPv6
                 cur_m.protocol = "ICMPv6";
@@ -509,16 +540,16 @@ void process_msg(int lidx, int ridx){
             cur_m.protocol = e.type;
         }
         cur_m.num = captured_msg.size();
-        cur_m.timestamp = e.timestamp;
+        cur_m.timestamp = to_string(e.timestamp);
         cur_m.len = e.tot_len;
         cur_m.ether_idx = i;
         captured_msg.emplace_back(cur_m);
     }
+    tot_packets = captured_msg.size();
 }
 void do_print_captured_msg(int r, int c, int w){
     reshape_selected_row(selected_msg_row_idx, tot_packets);
     selected_msg_idx = selected_msg_row_idx;
-
     for (int i = packets_lidx; i <= packets_ridx; ++i) {
         if (selected_msg_idx == i)attron(COLOR_PAIR(8));
         else
@@ -544,28 +575,33 @@ void do_print_packets(){
     do_print_banner(r++, c++, w, h);
 //    do_print_scroll(w - scroll_w - 1, c, scroll_w, h, cur_page, tot_page);
     // 打印右下角的packet数量
-    int cur_packet_num = 0;
-    int tot_packet_num = 144;
+    int cur_packet_num = selected_msg_idx;
+    int tot_packet_num = tot_packets;
     int num_off = 20;
-    mvprintw(r+h, w - num_off, "%d / %d", cur_packet_num, tot_packet_num);
+    mvprintw(r+h, w - num_off, "%d / %d", cur_packet_num + 1, tot_packet_num);
     //打印表头信息
-    mvprintw(r, c+1, "| No.");
-    mvprintw(r, c+11, "| Timestamp");
-    mvprintw(r, c+31, "| src");
-    mvprintw(r, c+61, "| dst");
-    mvprintw(r, c+91, "| protocol");
-    mvprintw(r, c+101, "| len");
-    mvprintw(r, c+111, "| info");
+    mvprintw(r, c, "| No.");
+    mvprintw(r, c+10, "| Timestamp");
+    mvprintw(r, c+30, "| src");
+    mvprintw(r, c+60, "| dst");
+    mvprintw(r, c+90, "| protocol");
+    mvprintw(r, c+100, "| len");
+    mvprintw(r, c+110, "| info");
     // 打印packet的普通信息，一个packet一行，一页共20行，可以放下10个？
-    do_print_captured_msg(r+1, c+1, w);
+    if (!ethers.empty() && !captured_msg.empty())
+        do_print_captured_msg(r+1, c+1, w);
 }
 void process_one_packet_idx(int msg_idx){
     process_detailed_one_packet(msg_idx);
+    if (msg_stack_idxs.empty())return;
     vector<int> idxs = msg_stack_idxs[msg_idx];
+    cur_selected_item_idxs.clear();
     if (packet_detail_status == 0){
         for (int & idx : idxs) {
             cur_selected_item_idxs.emplace_back(idx);
         }
+        if (!cur_selected_item_idxs.empty())
+            cur_selected_item_idxs.pop_back();
     }else{
         int tmp = packet_detail_status;
         int i = 1, prev = 0;
@@ -575,14 +611,13 @@ void process_one_packet_idx(int msg_idx){
                     cur_selected_item_idxs.emplace_back(j);
                 }
             }
-            prev = idxs[i];
-            i++;
-            tmp /= 2;
+            prev = idxs[i++];
+            tmp >>= 1;
         }
     }
 }
 void process_ip(vector<string>&v, const display_ip& displayIp){
-    v.emplace_back("Internet Protocol Version 4");
+    v.emplace_back("v Internet Protocol Version 4");
     v.emplace_back("Total Length: "+to_string(displayIp.tot_len));
     v.emplace_back("Identification: "+displayIp.ident);
     v.emplace_back("Flags: "+displayIp.flags);
@@ -593,7 +628,7 @@ void process_ip(vector<string>&v, const display_ip& displayIp){
     v.emplace_back("Destination Address: "+displayIp.dst_ip);
 }
 void process_tcp(vector<string>&v, const display_tcp& displayTcp){
-    v.emplace_back("Transmission Control Protocol");
+    v.emplace_back("v Transmission Control Protocol");
     v.emplace_back("Source Port: "+to_string(displayTcp.src_port));
     v.emplace_back("Destination Port: "+to_string(displayTcp.dst_port));
     v.emplace_back("Sequence Number: "+to_string(displayTcp.seq));
@@ -604,21 +639,21 @@ void process_tcp(vector<string>&v, const display_tcp& displayTcp){
     v.emplace_back("Urgent Pointer: "+to_string(displayTcp.urgent_pointer));
 }
 void process_udp(vector<string>&v, const display_udp& displayUdp){
-    v.emplace_back("User Datagram Protocol");
+    v.emplace_back("v User Datagram Protocol");
     v.emplace_back("Source Port: "+to_string(displayUdp.src_port));
     v.emplace_back("Destination Port: "+to_string(displayUdp.dst_port));
     v.emplace_back("Length: "+to_string(displayUdp.len));
     v.emplace_back("Checksum: "+displayUdp.checksum);
 }
 void process_icmp(vector<string>&v, const display_icmp& displayIcmp){
-    v.emplace_back("Internet Control Message Protocol");
+    v.emplace_back("v Internet Control Message Protocol");
     v.emplace_back("Type: "+displayIcmp.type);
     v.emplace_back("Code: "+displayIcmp.code);
     v.emplace_back("Checksum: "+displayIcmp.checksum);
     v.emplace_back("Sequence Number: "+displayIcmp.seq);
 }
 void process_icmp6(vector<string>&v, const display_icmp6& displayIcmp6){
-    v.emplace_back("Internet Control Message Protocol v6");
+    v.emplace_back("v Internet Control Message Protocol v6");
     v.emplace_back("Type: "+displayIcmp6.type);
     v.emplace_back("Code: "+displayIcmp6.code);
     v.emplace_back("Checksum: "+displayIcmp6.checksum);
@@ -635,7 +670,7 @@ void process_arp(vector<string>&v, const display_arp& displayArp){
     v.emplace_back("Target IP: "+displayArp.target_ip);
 }
 void process_ip6(vector<string>&v, const display_ipv6& displayIpv6){
-    v.emplace_back("Internet Protocol Version 6");
+    v.emplace_back("v Internet Protocol Version 6");
     v.emplace_back("Payload Len: "+ to_string(displayIpv6.payload_len));
     v.emplace_back("Next Header: "+displayIpv6.nxt_header_protocol);
     v.emplace_back("Hop Limit: "+ to_string(displayIpv6.hop_limit));
@@ -645,7 +680,7 @@ void process_ip6(vector<string>&v, const display_ipv6& displayIpv6){
 void update_msg_thread(void*args){
     // 把新抓的包仍进来
     while (isRunning2) {
-        this_thread::sleep_for(chrono::seconds(5));
+        this_thread::sleep_for(chrono::seconds(10));
         pthread_mutex_lock(&packetProcessMutex);
         while (is_paused){
             // TODO
@@ -659,6 +694,7 @@ void update_msg_thread(void*args){
     }
 }
 void process_detailed_one_packet(int msg_idx){
+    if (ethers.size() == 0 || captured_msg.size() == 0)return;
     Msg cur_m = captured_msg[msg_idx];
     display_ether e = ethers[cur_m.ether_idx];
     vector<string> items;
@@ -678,7 +714,7 @@ void process_detailed_one_packet(int msg_idx){
         // stun -> 2
         // 暂存入msg_items里面，以后方便读
         sk_idx.emplace_back(0);
-        items.emplace_back("Ethernet");
+        items.emplace_back("v Ethernet");
         items.emplace_back("Source: " + e.src_mac);
         items.emplace_back("Destination: " + e.dst_mac);
         items.emplace_back("Type: " + e.type);
@@ -688,79 +724,94 @@ void process_detailed_one_packet(int msg_idx){
             sk_idx.emplace_back(items.size());
             process_tcp(items, tcps[ips[e.nxt_idx].nxt_idx]);
             sk_idx.emplace_back(items.size());
-            items.emplace_back("HTTP");
+            items.emplace_back("v HTTP");
+            sk_idx.emplace_back(items.size());
         }else if (cur_m.protocol == "TCP"){
             process_ip(items, ips[e.nxt_idx]);
             sk_idx.emplace_back(items.size());
             process_tcp(items, tcps[ips[e.nxt_idx].nxt_idx]);
+            sk_idx.emplace_back(items.size());
         }else if (cur_m.protocol == "TLS"){
             process_ip(items, ips[e.nxt_idx]);
             sk_idx.emplace_back(items.size());
             process_tcp(items, tcps[ips[e.nxt_idx].nxt_idx]);
             sk_idx.emplace_back(items.size());
-            items.emplace_back("Transport Layer Security");
-            items.emplace_back("Content Type: "+tlss[tcps[ips[e.nxt_idx].nxt_idx].nxt_type].type);
-            items.emplace_back("Version: "+tlss[tcps[ips[e.nxt_idx].nxt_idx].nxt_type].version);
+            items.emplace_back("v Transport Layer Security");
+            items.emplace_back("Content Type: "+tlss[tcps[ips[e.nxt_idx].nxt_idx].nxt_idx].type);
+            items.emplace_back("Version: "+tlss[tcps[ips[e.nxt_idx].nxt_idx].nxt_idx].version);
+            sk_idx.emplace_back(items.size());
         }else if (cur_m.protocol == "DNS"){
             process_ip(items, ips[e.nxt_idx]);
             sk_idx.emplace_back(items.size());
             process_udp(items, udps[ips[e.nxt_idx].nxt_idx]);
             sk_idx.emplace_back(items.size());
-            items.emplace_back("Domain Name System");
-            items.emplace_back("Transaction ID: "+dnss[tcps[ips[e.nxt_idx].nxt_idx].nxt_type].transaction_id);
-            items.emplace_back("Flags: "+dnss[tcps[ips[e.nxt_idx].nxt_idx].nxt_type].flags);
+            items.emplace_back("v Domain Name System");
+            items.emplace_back("Transaction ID: "+dnss[tcps[ips[e.nxt_idx].nxt_idx].nxt_idx].transaction_id);
+            items.emplace_back("Flags: "+dnss[tcps[ips[e.nxt_idx].nxt_idx].nxt_idx].flags);
+            sk_idx.emplace_back(items.size());
         }else if (cur_m.protocol == "DHCP"){
             process_ip(items, ips[e.nxt_idx]);
             sk_idx.emplace_back(items.size());
             process_udp(items, udps[ips[e.nxt_idx].nxt_idx]);
             sk_idx.emplace_back(items.size());
-            items.emplace_back("DHCP");
+            items.emplace_back("v DHCP");
+            sk_idx.emplace_back(items.size());
         }else if (cur_m.protocol == "SSDP"){
             process_ip(items, ips[e.nxt_idx]);
             sk_idx.emplace_back(items.size());
             process_udp(items, udps[ips[e.nxt_idx].nxt_idx]);
             sk_idx.emplace_back(items.size());
-            items.emplace_back("SSDP");
+            items.emplace_back("v SSDP");
+            sk_idx.emplace_back(items.size());
         }else if (cur_m.protocol == "DTLS v1.2"){
             process_ip(items, ips[e.nxt_idx]);
             sk_idx.emplace_back(items.size());
             process_udp(items, udps[ips[e.nxt_idx].nxt_idx]);
             sk_idx.emplace_back(items.size());
-            items.emplace_back("DTLS v1.2");
-            items.emplace_back("Type: "+dtlss[tcps[ips[e.nxt_idx].nxt_idx].nxt_type].type);
+            items.emplace_back("v DTLS v1.2");
+            items.emplace_back("Type: "+dtlss[tcps[ips[e.nxt_idx].nxt_idx].nxt_idx].type);
+            sk_idx.emplace_back(items.size());
         }else if (cur_m.protocol == "STUN"){
             process_ip(items, ips[e.nxt_idx]);
             sk_idx.emplace_back(items.size());
             process_udp(items, udps[ips[e.nxt_idx].nxt_idx]);
             sk_idx.emplace_back(items.size());
-            items.emplace_back("STUN");
-            items.emplace_back("Type: "+stuns[tcps[ips[e.nxt_idx].nxt_idx].nxt_type].type);
+            items.emplace_back("v STUN");
+            items.emplace_back("Type: "+stuns[tcps[ips[e.nxt_idx].nxt_idx].nxt_idx].type);
+            sk_idx.emplace_back(items.size());
         }else if (cur_m.protocol == "QUIC"){
             process_ip(items, ips[e.nxt_idx]);
             sk_idx.emplace_back(items.size());
             process_udp(items, udps[ips[e.nxt_idx].nxt_idx]);
             sk_idx.emplace_back(items.size());
-            items.emplace_back("QUIC");
+            items.emplace_back("v QUIC");
+            sk_idx.emplace_back(items.size());
         }else if (cur_m.protocol == "UDP"){
             process_ip(items, ips[e.nxt_idx]);
             sk_idx.emplace_back(items.size());
             process_udp(items, udps[ips[e.nxt_idx].nxt_idx]);
+            sk_idx.emplace_back(items.size());
         }else if (cur_m.protocol == "ICMP"){
             process_ip(items, ips[e.nxt_idx]);
             sk_idx.emplace_back(items.size());
             process_icmp(items, icmps[ips[e.nxt_idx].nxt_idx]);
+            sk_idx.emplace_back(items.size());
         }else if (cur_m.protocol == "ARP"){
-            items.emplace_back("Address Resolution Protocol");
+            items.emplace_back("v Address Resolution Protocol");
             process_arp(items, arps[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
         }else if (cur_m.protocol == "RARP"){
-            items.emplace_back("Reversed Address Resolution Protocol");
+            items.emplace_back("v Reversed Address Resolution Protocol");
             process_arp(items, rarps[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
         }else if (cur_m.protocol == "ICMPv6"){
             process_ip6(items, ip6s[e.nxt_idx]);
             sk_idx.emplace_back(items.size());
             process_icmp6(items, icmp6s[ips[e.nxt_idx].nxt_idx]);
+            sk_idx.emplace_back(items.size());
         }else if (cur_m.protocol == "IPv6"){
             process_ip6(items, ip6s[e.nxt_idx]);
+            sk_idx.emplace_back(items.size());
         }else if(cur_m.protocol == "NIP"){
             // TODO
         }
@@ -769,7 +820,7 @@ void process_detailed_one_packet(int msg_idx){
     }
 }
 void do_print_traffic_info(){
-    int row = 30, col=5, w=20, h=6;
+    int row = 30, col=5, w=25, h=6;
     do_print_banner(row++, col++, w, h);
     mvprintw(row++, col, "dev: %s", curDevInfo.dev_name);
     if (!curDevInfo.dev_ips.empty())
@@ -780,12 +831,17 @@ void do_print_traffic_info(){
         mvprintw(row, col, "Upload: %s", upload_traffic_per_second.c_str());
 }
 void do_print_packet_details(){
-    int r = 30,c = 45,w = 82,h = 9;
-    do_print_banner(r,c,w,h);
+    int r = 30,c = 45,w = 120,h = 8;
+    do_print_banner(r++,c++,w,h);
+
+    process_one_packet_idx(selected_msg_idx);
     tot_details = (int)cur_selected_item_idxs.size();
+
+    if (cur_selected_item_idxs.empty() || msg_items.empty())return;
+
     reshape_selected_row(selected_detail_row_idx, tot_details);
     selected_detail_idx = selected_detail_row_idx;
-    process_one_packet_idx(selected_detail_idx);
+    if (packet_detail_ridx == cur_selected_item_idxs.size() )packet_detail_ridx = cur_selected_item_idxs.size() - 1;
     for (int i = packet_detail_lidx; i <= packet_detail_ridx; ++i) {
         if (i == selected_detail_idx && current_cmd == "get packet details") attron(COLOR_PAIR(8));
         else
@@ -1046,9 +1102,9 @@ int get_all_dev_info(){
 }
 // 根据每秒包的多少分级
 int packet_num_to_level(int num){
-    if (num > 0 && num <= 10)
+    if (num > 0 && num <= 20)
         return 1;
-    else if (num > 10 && num < 50){
+    else if (num > 20 && num < 50){
         return 2;
     }else if (num > 50){
         return 3;
@@ -1059,32 +1115,47 @@ int packet_num_to_level(int num){
 // 打印开始页每个设备每秒的包数
 void do_print_statistics(){
     int row_off = STARTUP_DEV_INFO_ROW+1, col_off, prev = -1, cur;
-    for (int i = dev_name_lidx; i < dev_name_ridx; ++i) {
+    for (int i = dev_name_lidx; i <= dev_name_ridx; ++i) {
         col_off = 80;
+        attron(COLOR_PAIR(i));
         for (int & it : data_per_interface[menu[i]->dev_name]) {
-            if (prev == -1) {
-                prev = packet_num_to_level(it);
-                continue;
-            }
             cur = packet_num_to_level(it);
-            if (it > 0 && it <= 10)
-                mvprintw(row_off+2, col_off++, "█");
-            else if (it > 10 && it < 50){
-                mvprintw(row_off+1, col_off, "█");
-                mvprintw(row_off+2, col_off++, "█");
-            }else if (it > 50){
-                mvprintw(row_off, col_off++, "█");
-                mvprintw(row_off+1, col_off, "█");
-                mvprintw(row_off+2, col_off, "█");
+//            mvprintw(row_off+2, col_off, "%d: %c", cur, menu[i]->dev_name[0]);
+//            col_off += 5;
+            if (cur == 1)
+                mvprintw(row_off+2, col_off, ":");
+            else if (cur == 2){
+                mvprintw(row_off+1, col_off, ":");
+                mvprintw(row_off+2, col_off, ":");
+            }else if (cur == 3){
+                mvprintw(row_off+1, col_off, ":");
+                mvprintw(row_off+2, col_off, ":");
+                mvprintw(row_off, col_off, ":");
+            }else {
+                mvprintw(row_off + 2, col_off, "_");
             }
+            if (prev != -1){
+                if (prev == cur){
+                    if (prev == 2){
+                        mvprintw(row_off+1, col_off, "-");
+                    }else if(prev == 1){
+                        mvprintw(row_off+2, col_off, "-");
+                    }else if (prev == 3){
+                        mvprintw(row_off, col_off, "-");
+                    }
+                }
+            }
+            col_off++;
+            prev = cur;
         }
         row_off += 3;
+        attroff(COLOR_PAIR(i));
     }
 }
 // 计算当前设备的每秒的流量
 void update_traffic_count_per_sec() {
     while (isRunning2) {
-        this_thread::sleep_for(chrono::seconds(5));
+        this_thread::sleep_for(chrono::seconds(2));
         pthread_mutex_lock(&trafficCountMutex);
         while (is_paused){
             // TODO
@@ -1121,14 +1192,14 @@ void update_packet_count_per_sec() {
                 data_per_interface[entry.first].pop_front();
             tmp |= (1<<interface2idx[entry.first]);
             //std::cout <<"[" <<time(nullptr) <<"] " << entry.first << " Packets per second on " << ": " << entry.second << std::endl;
-            debug_fileout<< entry.first << ": "<<entry.second<<endl;
+//            debug_fileout<< entry.first << ": "<<entry.second<<endl;
         }
         for (int j = 0; j < interfaces.size(); ++j) {
             if (!(tmp & (1<<j))){
                 data_per_interface[interfaces[j]].push_back(0);
                 if (data_per_interface[interfaces[j]].size() >= MAX_DATA_SIZE_PER_ITEM)
                     data_per_interface[interfaces[j]].pop_front();
-                debug_fileout<< interfaces[j] << ": "<<0<<endl;
+//                debug_fileout<< interfaces[j] << ": "<<0<<endl;
                 //std::cout <<"[" <<time(nullptr) <<"] " << interfaces[j] << " Packets per second on " << ": " << 0 << std::endl;
             }
         }
@@ -1167,11 +1238,15 @@ void get_system_info(){
     // 读文件很慢，所以battery隔很久再读
     if (!battery_interval){
         battery_interval = 0;
-        ifstream in(battery_file);
-        if (!in.is_open()) current_battery_percentage = 0;
-        char buf[256];
-        in.getline(buf, 100);
-        current_battery_percentage = stoi(buf);
+        // I build this in real machine, but when I change it in the vm, the file changes
+        // and I couldn't find the file, so I just comment it, and make it a fake number
+        // you can comment out these and change the filepath and filename in your env
+//        ifstream in(battery_file);
+//        if (!in.is_open()) current_battery_percentage = 0;
+//        char buf[256];
+//        in.getline(buf, 100);
+//        current_battery_percentage = stoi(buf);
+        current_battery_percentage = 100;
     }
     if (++battery_interval >= MAX_BATTERY_INTERVAL){
     }
