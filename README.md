@@ -1,5 +1,5 @@
 # bugs-sniffer
-本次实验主要完成的工作如下：利用c++、libpcap和ncurses以及pthread==开发bugs-sniffer==和==基于wireshark的二次开发==，尝试用libpcap抓DPDK的包。
+本次实验主要完成的工作如下：利用c++、libpcap和ncurses以及pthread**开发bugs-sniffer**和**基于wireshark的二次开发**，尝试用libpcap抓DPDK的包。
 ## BUGS-SNIFFER 功能简介
 该工具是基于终端的网络流量嗅探器和分析器，有良好的可扩展性和易用性，实现的功能有：
 - [x] 使用`ncurses`和`pthread`进行实时异步地在终端进行结果展示
