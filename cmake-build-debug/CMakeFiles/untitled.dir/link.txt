@@ -1,0 +1,1 @@
+/usr/bin/c++ -g CMakeFiles/untitled.dir/main.cpp.o CMakeFiles/untitled.dir/bugs_sniffer.cpp.o CMakeFiles/untitled.dir/sniffer_windows.cpp.o CMakeFiles/untitled.dir/globalvars.cpp.o -o untitled  -lpcap -lncursesw -lpthread 
