@@ -201,7 +201,7 @@ int analyze_https_packet(const unsigned char* data);
 void track_tcp_ip_port_bpf_based(char*dev_name, const string& src_ip, int src_port, const string& dst_ip, int dst_port);
 void track_tcp_ip_port_hashtable_based(const string& ip, int port);
 void track_process_ports_based(int pid, char* dev_name);
-void track_process_bpf_based(int pid);
+string track_process_bpf_based(int pid);
 // file related
 //bool save_traffic(struct dev_info& devInfo, const string& filepath);
 bool load_traffic(const char *filepath);

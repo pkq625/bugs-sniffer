@@ -1282,8 +1282,31 @@ void track_process_ports_based(int pid, char* dev_name){
         track_tcp_ip_port_bpf_based(dev_name, src_ips[i], src_ports[i], dst_ips[i], dst_ports[i]);
     }
 }
-void track_process_bpf_based(int pid){
-    //TODO
+string track_process_bpf_based(int pid){
+    vector<string>srcips, dstips;
+    vector<int> dports, sports, tots;
+    get_all_ports(pid, srcips, sports, dstips, dports);
+
+    tots.insert(tots.end(),sports.begin(),sports.end());
+    tots.insert(tots.end(),dports.begin(),dports.end());
+
+    sort(tots.begin(), tots.end());
+    tots.erase(unique(tots.begin(), tots.end()), tots.end());
+
+    string s;
+    struct bpf_program filter{};
+    int f = 1;
+    for (int i = 0; i < tots.size(); ++i) {
+        if (f == 1) {
+            f = 0;
+            s += "port ";
+            s += to_string(tots[i]);
+        }else{
+            s += " or port ";
+            s += to_string(tots[i]);
+        }
+    }
+    return s;
 }
 string get_mac_addr(const char* dev_name) {
     int fd = socket(PF_INET, SOCK_DGRAM, IPPROTO_IP);

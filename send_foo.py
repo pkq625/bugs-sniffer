@@ -1,4 +1,4 @@
-from scapy.all import *
+teryfrom scapy.all import *
 import threading
 import time
 import sys

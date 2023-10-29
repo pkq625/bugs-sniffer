@@ -1,12 +1,12 @@
 //
-// Created by tery on 2023/10/22.
+// Created by neko on 2023/10/22.
 //
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
 
 int main() {
-    int pid = YOUR_PROCESS_PID; // Replace with the PID of the process you want to inspect
+    int pid = pid;
 
     // Build the netstat command
     char cmd[100];

@@ -3,7 +3,6 @@
 //
 #include "globalvars.h"
 #include "sniffer_windows.h"
-// 初始化界面：是否使用颜色、颜色对、不回显等设置
 pthread_t mainThread; // to draw the frontend in the terminal...
 
 pthread_t countThread; // 计算每秒的每个设备的包的个数
@@ -70,7 +69,8 @@ void * sniffer_thread(void *pVoid){
                     tmp = used_expression.find("pid");
                     if (tmp != string::npos) {
                         int pid = stoi(used_expression.substr(4, used_expression.size() - 4));
-                        // TODO
+                        used_expression = track_process_bpf_based(pid);
+                        expression = "";
                     }
                 }
             }else if (c == KEY_LEFT){
@@ -369,6 +369,7 @@ void start_sniffer(){
     pthread_join(mainThread, nullptr);
     debug_fileout.close();
 }
+// 初始化界面：是否使用颜色、颜色对、不回显等设置
 void init_window(){
     // 初始化参数
     checked_modes = 5; // 2 8
