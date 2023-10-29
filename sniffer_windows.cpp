@@ -43,7 +43,7 @@ void * sniffer_thread(void *pVoid){
             print_details();
         }
         c = getch();
-        if (current_cmd.find("input") != string::npos){
+        if (current_cmd.find("input") != string::npos || current_cmd.find("save") != string::npos){
             if (legal_char.find((char)c) != legal_char.end()) {
                 // 输入属于给定的范围内
                 expression += (char)c;
@@ -56,7 +56,7 @@ void * sniffer_thread(void *pVoid){
                     // load the file
                     if (load_traffic(used_expression.substr(5, used_expression.size()-5).c_str())){
                         process_msg(0, ethers.size());
-                        packets_ridx = tot_items - 1;
+                        packets_ridx = tot_packets - 1;
                         isRunning = false;
                         current_page = 2; // goto the next page
 //                        debug_fileout << ethers.size() << endl;
@@ -65,6 +65,12 @@ void * sniffer_thread(void *pVoid){
                     }else{
                         // TODO: set the error flag and print some error information
                         debug_fileout << used_expression.substr(tmp+1, used_expression.size()-tmp) << " load fail" << endl;
+                    }
+                }else {
+                    tmp = used_expression.find("pid");
+                    if (tmp != string::npos) {
+                        int pid = stoi(used_expression.substr(4, used_expression.size() - 4));
+                        // TODO
                     }
                 }
             }else if (c == KEY_LEFT){
@@ -125,6 +131,7 @@ void * sniffer_thread(void *pVoid){
         }else if (current_cmd == "save traffic" && current_page == 2){
             if (c == KEY_RIGHT){
                 // save it!
+                destfile = expression;
                 save_file("./tmp.pcap", destfile.c_str());
                 destfile = "";
                 current_cmd = "";
@@ -431,7 +438,7 @@ void print_details(){
     current_page = 2;
     clear();
     do_print_side();
-//    do_print_details_input_bar();
+    //do_print_details_input_bar();
     do_print_packets();
     do_print_traffic_info();
     do_print_packet_details();
@@ -446,6 +453,26 @@ void do_print_cur_filter(){
 }
 void do_print_details_input_bar(){
     // do save
+    int row = 28, col = 5;
+    // 打印边框
+    attron(COLOR_PAIR(4));
+    mvprintw(row+1, col, "Path：");
+    int w = 80;
+    do_print_banner(row, col, w, 2);
+    // 打印里面的内容
+    if (current_cmd.find("save") != string::npos){
+        attron(COLOR_PAIR(8));
+        mvprintw(row+1, col + 1, "%s", expression.c_str());
+        attron(COLOR_PAIR(7));
+        for (int i = 1+(int)expression.size(); i < w; ++i) {
+            mvprintw(row+1, col + i, "█");
+        }
+    }else{
+        attron(COLOR_PAIR(7));
+        for (int i = 1; i < w; ++i) {
+            mvprintw(row+1, col + i, "█");
+        }
+    }
 }
 void process_msg(int lidx, int ridx){
     // 把那些包处理后放进这里。。。captured_msg
@@ -550,6 +577,7 @@ void process_msg(int lidx, int ridx){
 void do_print_captured_msg(int r, int c, int w){
     reshape_selected_row(selected_msg_row_idx, tot_packets);
     selected_msg_idx = selected_msg_row_idx;
+    if (packets_ridx >= captured_msg.size()) packets_ridx = captured_msg.size() - 1;
     for (int i = packets_lidx; i <= packets_ridx; ++i) {
         if (selected_msg_idx == i)attron(COLOR_PAIR(8));
         else
@@ -680,22 +708,23 @@ void process_ip6(vector<string>&v, const display_ipv6& displayIpv6){
 void update_msg_thread(void*args){
     // 把新抓的包仍进来
     while (isRunning2) {
+        if (ethers.empty()) continue;
         this_thread::sleep_for(chrono::seconds(10));
         pthread_mutex_lock(&packetProcessMutex);
         while (is_paused){
             // TODO
         }
         int tmp = ethers.size();
-        if (tot_items < tmp) {
-            process_msg(tot_items, tmp);
-            tot_items = tmp;
+        if (tot_packets < tmp) {
+            process_msg(tot_packets, tmp-1);
         }
         pthread_mutex_unlock(&packetProcessMutex);
     }
 }
 void process_detailed_one_packet(int msg_idx){
-    if (ethers.size() == 0 || captured_msg.size() == 0)return;
+    if (ethers.empty() || captured_msg.empty())return;
     Msg cur_m = captured_msg[msg_idx];
+    if (cur_m.ether_idx >= ethers.size())return;
     display_ether e = ethers[cur_m.ether_idx];
     vector<string> items;
     vector<int> sk_idx;
@@ -833,7 +862,7 @@ void do_print_traffic_info(){
 void do_print_packet_details(){
     int r = 30,c = 45,w = 120,h = 8;
     do_print_banner(r++,c++,w,h);
-
+    if (captured_msg.empty()) return;
     process_one_packet_idx(selected_msg_idx);
     tot_details = (int)cur_selected_item_idxs.size();
 
@@ -846,6 +875,9 @@ void do_print_packet_details(){
         if (i == selected_detail_idx && current_cmd == "get packet details") attron(COLOR_PAIR(8));
         else
             attron(COLOR_PAIR(4));
+        if (cur_selected_item_idxs[i] >= msg_items[selected_msg_idx].size() ||
+        selected_msg_idx >= msg_items.size()||i>=cur_selected_item_idxs.size())
+            break;
         mvprintw(r++,c, "%s", msg_items[selected_msg_idx][cur_selected_item_idxs[i]].c_str());
         for (int j = 0; j < w; ++j) {
             mvprintw(r,c+j, "-");
